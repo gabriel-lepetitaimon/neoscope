@@ -1,0 +1,75 @@
+.RulerAxis {
+}
+
+.RulerAxis svg {
+  width: 100% !important;
+  height: 100% !important;
+  background-color: var(--neoscope-dim-background-color);
+  display: block;
+}
+
+.RulerAxis .labelTick line {
+  stroke: var(--neoscope-dim-foreground-color);
+  stroke-width: 1px;
+}
+
+.RulerAxis .labelTick text {
+  text-anchor: middle;
+  font-weight: normal;
+  dominant-baseline: hanging;
+  fill: var(--neoscope-dim-foreground-color);
+}
+
+.RulerAxis .BoundariesLabelTick text {
+  font-weight: bold;
+}
+
+.RulerAxis .end text {
+  text-anchor: end;
+  font-weight: bold;
+}
+
+.RulerAxis .start text {
+  text-anchor: start;
+  font-weight: bold;
+}
+
+.RulerAxis .tick {
+  stroke: var(--neoscope-dim-foreground-color);
+  stroke-width: 1px;
+}
+
+.RulerAxis .cursorTick text {
+  fill: var(--neoscope-foreground-color);
+  font-weight: bold;
+}
+
+.RulerAxis .HighlightLabelTick.BoundariesLabelTick text {
+  fill: var(--neoscope-foreground-color);
+  font-weight: bold;
+}
+
+.RulerAxis .cursorTick rect {
+  fill: var(--neoscope-highlight-background-color);
+}
+
+.RulerAxis .cursorTick line {
+  stroke: var(--neoscope-foreground-color);
+}
+
+.RulerAxis .out-of-domain {
+  fill: var(--neoscope-highlight-background-color);
+}
+
+.RulerAxis .shadow {
+  fill: var(--neoscope-shadow-color);
+  opacity: 0.5;
+  backdrop-filter: blur(4px);
+}
+.RulerAxis #lightBackgroundFilter feFlood {
+  flood-color: var(--neoscope-dim-background-color);
+}
+
+.RulerAxis #darkBackgroundFilter feFlood {
+  flood-color: color-mix(in srgb, var(--neoscope-shadow-color) 50%, var(--neoscope-dim-background-color));
+}

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neoscope"
+version = "0.0.1"
+description = "Visualisation widget for images and graph compatible with jupyter and streamlit."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [
+    { name = "Gabriel Lepetit-Aimon", email = "gabriel.lepetitaimon@gmail.com" },
+]
+dependencies = ["anywidget", "streamlit >= 1.51"]
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["neoscope*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+# Les chemins ici doivent être relatifs au package Python lui-même (donc à l'intérieur de src/neoscope)
+neoscope = ["static/**/*", "pyproject.toml"]

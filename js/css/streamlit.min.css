@@ -1,0 +1,16 @@
+:root {
+  color-scheme: var(--base);
+  --neoscope-foreground-color: var(--st-text-color);
+  --neoscope-dim-foreground-color: light-dark(
+    hsl(from var(--st-text-color) h s calc(255 - (255 - l) * .5)),
+    hsl(from var(--st-text-color) h s calc(l * .5))
+  );
+
+  --neoscope-background-color: var(--st-background-color);
+  --neoscope-dim-background-color: var(--st-secondary-background-color);
+  --neoscope-highlight-background-color:  light-dark(
+      hsl(from var(--st-primary-color) h calc(.2*s) calc(1.4*l)),
+      hsl(from var(--st-primary-color) h calc(.2*s) calc(.4*l))
+  );
+  --neoscope-shadow-color: #000;
+}
