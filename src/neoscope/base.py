@@ -159,7 +159,7 @@ class BaseWidgetModel(BaseModel):
             name=f"neoscope.{widget_name}",
             html='<div class="react-root neoscope-widget"></div>',
             js=f"{widget_name}-streamlit.js",
-            css=f"{widget_name}.css",
+            css=f"{widget_name}-streamlit.css",
         )
         return cls._streamlit_component
 
@@ -228,7 +228,7 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
 
         class SpecializedAnyWidget(NeoscopeAnyWidget[MODEL]):
             _esm = __asset_dir__ / f"{widget_name}-anywidget.js"
-            _css = __asset_dir__ / f"{widget_name}.css"
+            _css = __asset_dir__ / f"{widget_name}-anywidget.css"
 
         return SpecializedAnyWidget
 

@@ -93,18 +93,21 @@ export class Animator<K extends string> {
     }
 
     this._startedTime = Number(document.timeline.currentTime) + (delay || 0) - this.t;
-    this.animationFrameHandle = requestAnimationFrame((t) => {
+    const tick: (t: number) => void = (t) => {
       this.t = t - this._startedTime;
+      this.animationFrameHandle = null;
       if (this.t < 0) {
         return;
       } else if (this.t < this._duration) {
         this._callback();
+        this.animationFrameHandle = requestAnimationFrame(tick);
       } else if (this.t >= this._duration) {
         this.t = this._duration;
         this._callback();
         this.stop();
       }
-    });
+    };
+    this.animationFrameHandle = requestAnimationFrame(tick);
 
     return true;
   }

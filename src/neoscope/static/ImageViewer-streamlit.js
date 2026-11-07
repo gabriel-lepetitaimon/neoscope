@@ -41,6 +41,274 @@ function requireJsxRuntime() {
   return jsxRuntime.exports;
 }
 var jsxRuntimeExports = requireJsxRuntime();
+var client = { exports: {} };
+var reactDomClient_production = {};
+var scheduler = { exports: {} };
+var scheduler_production = {};
+var hasRequiredScheduler_production;
+function requireScheduler_production() {
+  if (hasRequiredScheduler_production) return scheduler_production;
+  hasRequiredScheduler_production = 1;
+  (function(exports) {
+    function push(heap, node) {
+      var index = heap.length;
+      heap.push(node);
+      a: for (; 0 < index; ) {
+        var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
+        if (0 < compare(parent, node))
+          heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
+        else break a;
+      }
+    }
+    function peek(heap) {
+      return 0 === heap.length ? null : heap[0];
+    }
+    function pop(heap) {
+      if (0 === heap.length) return null;
+      var first = heap[0], last = heap.pop();
+      if (last !== first) {
+        heap[0] = last;
+        a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength; ) {
+          var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
+          if (0 > compare(left, last))
+            rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
+          else if (rightIndex < length && 0 > compare(right, last))
+            heap[index] = right, heap[rightIndex] = last, index = rightIndex;
+          else break a;
+        }
+      }
+      return first;
+    }
+    function compare(a, b) {
+      var diff = a.sortIndex - b.sortIndex;
+      return 0 !== diff ? diff : a.id - b.id;
+    }
+    exports.unstable_now = void 0;
+    if ("object" === typeof performance && "function" === typeof performance.now) {
+      var localPerformance = performance;
+      exports.unstable_now = function() {
+        return localPerformance.now();
+      };
+    } else {
+      var localDate = Date, initialTime = localDate.now();
+      exports.unstable_now = function() {
+        return localDate.now() - initialTime;
+      };
+    }
+    var taskQueue = [], timerQueue = [], taskIdCounter = 1, currentTask = null, currentPriorityLevel = 3, isPerformingWork = false, isHostCallbackScheduled = false, isHostTimeoutScheduled = false, needsPaint = false, localSetTimeout = "function" === typeof setTimeout ? setTimeout : null, localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null, localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
+    function advanceTimers(currentTime) {
+      for (var timer = peek(timerQueue); null !== timer; ) {
+        if (null === timer.callback) pop(timerQueue);
+        else if (timer.startTime <= currentTime)
+          pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
+        else break;
+        timer = peek(timerQueue);
+      }
+    }
+    function handleTimeout(currentTime) {
+      isHostTimeoutScheduled = false;
+      advanceTimers(currentTime);
+      if (!isHostCallbackScheduled)
+        if (null !== peek(taskQueue))
+          isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline());
+        else {
+          var firstTimer = peek(timerQueue);
+          null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+        }
+    }
+    var isMessageLoopRunning = false, taskTimeoutID = -1, frameInterval = 5, startTime = -1;
+    function shouldYieldToHost() {
+      return needsPaint ? true : exports.unstable_now() - startTime < frameInterval ? false : true;
+    }
+    function performWorkUntilDeadline() {
+      needsPaint = false;
+      if (isMessageLoopRunning) {
+        var currentTime = exports.unstable_now();
+        startTime = currentTime;
+        var hasMoreWork = true;
+        try {
+          a: {
+            isHostCallbackScheduled = false;
+            isHostTimeoutScheduled && (isHostTimeoutScheduled = false, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
+            isPerformingWork = true;
+            var previousPriorityLevel = currentPriorityLevel;
+            try {
+              b: {
+                advanceTimers(currentTime);
+                for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost()); ) {
+                  var callback = currentTask.callback;
+                  if ("function" === typeof callback) {
+                    currentTask.callback = null;
+                    currentPriorityLevel = currentTask.priorityLevel;
+                    var continuationCallback = callback(
+                      currentTask.expirationTime <= currentTime
+                    );
+                    currentTime = exports.unstable_now();
+                    if ("function" === typeof continuationCallback) {
+                      currentTask.callback = continuationCallback;
+                      advanceTimers(currentTime);
+                      hasMoreWork = true;
+                      break b;
+                    }
+                    currentTask === peek(taskQueue) && pop(taskQueue);
+                    advanceTimers(currentTime);
+                  } else pop(taskQueue);
+                  currentTask = peek(taskQueue);
+                }
+                if (null !== currentTask) hasMoreWork = true;
+                else {
+                  var firstTimer = peek(timerQueue);
+                  null !== firstTimer && requestHostTimeout(
+                    handleTimeout,
+                    firstTimer.startTime - currentTime
+                  );
+                  hasMoreWork = false;
+                }
+              }
+              break a;
+            } finally {
+              currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = false;
+            }
+            hasMoreWork = void 0;
+          }
+        } finally {
+          hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = false;
+        }
+      }
+    }
+    var schedulePerformWorkUntilDeadline;
+    if ("function" === typeof localSetImmediate)
+      schedulePerformWorkUntilDeadline = function() {
+        localSetImmediate(performWorkUntilDeadline);
+      };
+    else if ("undefined" !== typeof MessageChannel) {
+      var channel = new MessageChannel(), port = channel.port2;
+      channel.port1.onmessage = performWorkUntilDeadline;
+      schedulePerformWorkUntilDeadline = function() {
+        port.postMessage(null);
+      };
+    } else
+      schedulePerformWorkUntilDeadline = function() {
+        localSetTimeout(performWorkUntilDeadline, 0);
+      };
+    function requestHostTimeout(callback, ms) {
+      taskTimeoutID = localSetTimeout(function() {
+        callback(exports.unstable_now());
+      }, ms);
+    }
+    exports.unstable_IdlePriority = 5;
+    exports.unstable_ImmediatePriority = 1;
+    exports.unstable_LowPriority = 4;
+    exports.unstable_NormalPriority = 3;
+    exports.unstable_Profiling = null;
+    exports.unstable_UserBlockingPriority = 2;
+    exports.unstable_cancelCallback = function(task) {
+      task.callback = null;
+    };
+    exports.unstable_forceFrameRate = function(fps) {
+      0 > fps || 125 < fps ? console.error(
+        "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
+      ) : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
+    };
+    exports.unstable_getCurrentPriorityLevel = function() {
+      return currentPriorityLevel;
+    };
+    exports.unstable_next = function(eventHandler) {
+      switch (currentPriorityLevel) {
+        case 1:
+        case 2:
+        case 3:
+          var priorityLevel = 3;
+          break;
+        default:
+          priorityLevel = currentPriorityLevel;
+      }
+      var previousPriorityLevel = currentPriorityLevel;
+      currentPriorityLevel = priorityLevel;
+      try {
+        return eventHandler();
+      } finally {
+        currentPriorityLevel = previousPriorityLevel;
+      }
+    };
+    exports.unstable_requestPaint = function() {
+      needsPaint = true;
+    };
+    exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
+      switch (priorityLevel) {
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+          break;
+        default:
+          priorityLevel = 3;
+      }
+      var previousPriorityLevel = currentPriorityLevel;
+      currentPriorityLevel = priorityLevel;
+      try {
+        return eventHandler();
+      } finally {
+        currentPriorityLevel = previousPriorityLevel;
+      }
+    };
+    exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
+      var currentTime = exports.unstable_now();
+      "object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
+      switch (priorityLevel) {
+        case 1:
+          var timeout = -1;
+          break;
+        case 2:
+          timeout = 250;
+          break;
+        case 5:
+          timeout = 1073741823;
+          break;
+        case 4:
+          timeout = 1e4;
+          break;
+        default:
+          timeout = 5e3;
+      }
+      timeout = options + timeout;
+      priorityLevel = {
+        id: taskIdCounter++,
+        callback,
+        priorityLevel,
+        startTime: options,
+        expirationTime: timeout,
+        sortIndex: -1
+      };
+      options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = true, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline())));
+      return priorityLevel;
+    };
+    exports.unstable_shouldYield = shouldYieldToHost;
+    exports.unstable_wrapCallback = function(callback) {
+      var parentPriorityLevel = currentPriorityLevel;
+      return function() {
+        var previousPriorityLevel = currentPriorityLevel;
+        currentPriorityLevel = parentPriorityLevel;
+        try {
+          return callback.apply(this, arguments);
+        } finally {
+          currentPriorityLevel = previousPriorityLevel;
+        }
+      };
+    };
+  })(scheduler_production);
+  return scheduler_production;
+}
+var hasRequiredScheduler;
+function requireScheduler() {
+  if (hasRequiredScheduler) return scheduler.exports;
+  hasRequiredScheduler = 1;
+  {
+    scheduler.exports = requireScheduler_production();
+  }
+  return scheduler.exports;
+}
 var react = { exports: {} };
 var react_production = {};
 var hasRequiredReact_production;
@@ -486,276 +754,6 @@ function requireReact() {
     react.exports = requireReact_production();
   }
   return react.exports;
-}
-var reactExports = requireReact();
-const React = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
-var client = { exports: {} };
-var reactDomClient_production = {};
-var scheduler = { exports: {} };
-var scheduler_production = {};
-var hasRequiredScheduler_production;
-function requireScheduler_production() {
-  if (hasRequiredScheduler_production) return scheduler_production;
-  hasRequiredScheduler_production = 1;
-  (function(exports) {
-    function push(heap, node) {
-      var index = heap.length;
-      heap.push(node);
-      a: for (; 0 < index; ) {
-        var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
-        if (0 < compare(parent, node))
-          heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
-        else break a;
-      }
-    }
-    function peek(heap) {
-      return 0 === heap.length ? null : heap[0];
-    }
-    function pop(heap) {
-      if (0 === heap.length) return null;
-      var first = heap[0], last = heap.pop();
-      if (last !== first) {
-        heap[0] = last;
-        a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength; ) {
-          var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
-          if (0 > compare(left, last))
-            rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
-          else if (rightIndex < length && 0 > compare(right, last))
-            heap[index] = right, heap[rightIndex] = last, index = rightIndex;
-          else break a;
-        }
-      }
-      return first;
-    }
-    function compare(a, b) {
-      var diff = a.sortIndex - b.sortIndex;
-      return 0 !== diff ? diff : a.id - b.id;
-    }
-    exports.unstable_now = void 0;
-    if ("object" === typeof performance && "function" === typeof performance.now) {
-      var localPerformance = performance;
-      exports.unstable_now = function() {
-        return localPerformance.now();
-      };
-    } else {
-      var localDate = Date, initialTime = localDate.now();
-      exports.unstable_now = function() {
-        return localDate.now() - initialTime;
-      };
-    }
-    var taskQueue = [], timerQueue = [], taskIdCounter = 1, currentTask = null, currentPriorityLevel = 3, isPerformingWork = false, isHostCallbackScheduled = false, isHostTimeoutScheduled = false, needsPaint = false, localSetTimeout = "function" === typeof setTimeout ? setTimeout : null, localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null, localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
-    function advanceTimers(currentTime) {
-      for (var timer = peek(timerQueue); null !== timer; ) {
-        if (null === timer.callback) pop(timerQueue);
-        else if (timer.startTime <= currentTime)
-          pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
-        else break;
-        timer = peek(timerQueue);
-      }
-    }
-    function handleTimeout(currentTime) {
-      isHostTimeoutScheduled = false;
-      advanceTimers(currentTime);
-      if (!isHostCallbackScheduled)
-        if (null !== peek(taskQueue))
-          isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline());
-        else {
-          var firstTimer = peek(timerQueue);
-          null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
-        }
-    }
-    var isMessageLoopRunning = false, taskTimeoutID = -1, frameInterval = 5, startTime = -1;
-    function shouldYieldToHost() {
-      return needsPaint ? true : exports.unstable_now() - startTime < frameInterval ? false : true;
-    }
-    function performWorkUntilDeadline() {
-      needsPaint = false;
-      if (isMessageLoopRunning) {
-        var currentTime = exports.unstable_now();
-        startTime = currentTime;
-        var hasMoreWork = true;
-        try {
-          a: {
-            isHostCallbackScheduled = false;
-            isHostTimeoutScheduled && (isHostTimeoutScheduled = false, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
-            isPerformingWork = true;
-            var previousPriorityLevel = currentPriorityLevel;
-            try {
-              b: {
-                advanceTimers(currentTime);
-                for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost()); ) {
-                  var callback = currentTask.callback;
-                  if ("function" === typeof callback) {
-                    currentTask.callback = null;
-                    currentPriorityLevel = currentTask.priorityLevel;
-                    var continuationCallback = callback(
-                      currentTask.expirationTime <= currentTime
-                    );
-                    currentTime = exports.unstable_now();
-                    if ("function" === typeof continuationCallback) {
-                      currentTask.callback = continuationCallback;
-                      advanceTimers(currentTime);
-                      hasMoreWork = true;
-                      break b;
-                    }
-                    currentTask === peek(taskQueue) && pop(taskQueue);
-                    advanceTimers(currentTime);
-                  } else pop(taskQueue);
-                  currentTask = peek(taskQueue);
-                }
-                if (null !== currentTask) hasMoreWork = true;
-                else {
-                  var firstTimer = peek(timerQueue);
-                  null !== firstTimer && requestHostTimeout(
-                    handleTimeout,
-                    firstTimer.startTime - currentTime
-                  );
-                  hasMoreWork = false;
-                }
-              }
-              break a;
-            } finally {
-              currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = false;
-            }
-            hasMoreWork = void 0;
-          }
-        } finally {
-          hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = false;
-        }
-      }
-    }
-    var schedulePerformWorkUntilDeadline;
-    if ("function" === typeof localSetImmediate)
-      schedulePerformWorkUntilDeadline = function() {
-        localSetImmediate(performWorkUntilDeadline);
-      };
-    else if ("undefined" !== typeof MessageChannel) {
-      var channel = new MessageChannel(), port = channel.port2;
-      channel.port1.onmessage = performWorkUntilDeadline;
-      schedulePerformWorkUntilDeadline = function() {
-        port.postMessage(null);
-      };
-    } else
-      schedulePerformWorkUntilDeadline = function() {
-        localSetTimeout(performWorkUntilDeadline, 0);
-      };
-    function requestHostTimeout(callback, ms) {
-      taskTimeoutID = localSetTimeout(function() {
-        callback(exports.unstable_now());
-      }, ms);
-    }
-    exports.unstable_IdlePriority = 5;
-    exports.unstable_ImmediatePriority = 1;
-    exports.unstable_LowPriority = 4;
-    exports.unstable_NormalPriority = 3;
-    exports.unstable_Profiling = null;
-    exports.unstable_UserBlockingPriority = 2;
-    exports.unstable_cancelCallback = function(task) {
-      task.callback = null;
-    };
-    exports.unstable_forceFrameRate = function(fps) {
-      0 > fps || 125 < fps ? console.error(
-        "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
-      ) : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
-    };
-    exports.unstable_getCurrentPriorityLevel = function() {
-      return currentPriorityLevel;
-    };
-    exports.unstable_next = function(eventHandler) {
-      switch (currentPriorityLevel) {
-        case 1:
-        case 2:
-        case 3:
-          var priorityLevel = 3;
-          break;
-        default:
-          priorityLevel = currentPriorityLevel;
-      }
-      var previousPriorityLevel = currentPriorityLevel;
-      currentPriorityLevel = priorityLevel;
-      try {
-        return eventHandler();
-      } finally {
-        currentPriorityLevel = previousPriorityLevel;
-      }
-    };
-    exports.unstable_requestPaint = function() {
-      needsPaint = true;
-    };
-    exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
-      switch (priorityLevel) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-          break;
-        default:
-          priorityLevel = 3;
-      }
-      var previousPriorityLevel = currentPriorityLevel;
-      currentPriorityLevel = priorityLevel;
-      try {
-        return eventHandler();
-      } finally {
-        currentPriorityLevel = previousPriorityLevel;
-      }
-    };
-    exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
-      var currentTime = exports.unstable_now();
-      "object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
-      switch (priorityLevel) {
-        case 1:
-          var timeout = -1;
-          break;
-        case 2:
-          timeout = 250;
-          break;
-        case 5:
-          timeout = 1073741823;
-          break;
-        case 4:
-          timeout = 1e4;
-          break;
-        default:
-          timeout = 5e3;
-      }
-      timeout = options + timeout;
-      priorityLevel = {
-        id: taskIdCounter++,
-        callback,
-        priorityLevel,
-        startTime: options,
-        expirationTime: timeout,
-        sortIndex: -1
-      };
-      options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = true, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline())));
-      return priorityLevel;
-    };
-    exports.unstable_shouldYield = shouldYieldToHost;
-    exports.unstable_wrapCallback = function(callback) {
-      var parentPriorityLevel = currentPriorityLevel;
-      return function() {
-        var previousPriorityLevel = currentPriorityLevel;
-        currentPriorityLevel = parentPriorityLevel;
-        try {
-          return callback.apply(this, arguments);
-        } finally {
-          currentPriorityLevel = previousPriorityLevel;
-        }
-      };
-    };
-  })(scheduler_production);
-  return scheduler_production;
-}
-var hasRequiredScheduler;
-function requireScheduler() {
-  if (hasRequiredScheduler) return scheduler.exports;
-  hasRequiredScheduler = 1;
-  {
-    scheduler.exports = requireScheduler_production();
-  }
-  return scheduler.exports;
 }
 var reactDom = { exports: {} };
 var reactDom_production = {};
@@ -14236,6 +14234,71 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
+function createAnywidgetRenderer(render, store2) {
+  const renderHook = ({ model, el }) => {
+    const root = clientExports.createRoot(el);
+    el.classList.add("neoscope-widget");
+    function onPythonModelChange() {
+      const data = model.get("_frontend_data");
+      if (!data) return;
+      store2.setState(model.get("_frontend_data"));
+      root.render(render());
+    }
+    const modelKeys = Object.keys(store2.initialState());
+    const unsubscribeStore = store2.subscribe((state) => {
+      const modelState = modelKeys.reduce((acc, key) => {
+        acc[key] = state[key];
+        return acc;
+      }, {});
+      if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
+      model.set("_frontend_data", modelState);
+      model.save_changes();
+    });
+    model.on("change:_frontend_data", onPythonModelChange);
+    onPythonModelChange();
+    return () => {
+      unsubscribeStore();
+      model.off("change:_frontend_data", onPythonModelChange);
+      root.unmount();
+    };
+  };
+  return { render: renderHook };
+}
+const reactRoots = /* @__PURE__ */ new WeakMap();
+function createStreamlitRenderer(render, store2) {
+  const renderHook = (args) => {
+    const { data, parentElement, setStateValue } = args;
+    const rootElement = parentElement.querySelector(".react-root");
+    if (!rootElement) {
+      throw new Error("Unexpected: React root element not found");
+    }
+    let reactRoot = reactRoots.get(parentElement);
+    if (!reactRoot) {
+      reactRoot = clientExports.createRoot(rootElement);
+      reactRoots.set(parentElement, reactRoot);
+    }
+    const modelKeys = Object.keys(store2.initialState());
+    const unsubscribe = store2.subscribe((state) => {
+      modelKeys.forEach((key) => {
+        if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) {
+          console.log("Sending update:", key, "\n	old:", data[key], "\n	new:", state[key]);
+          setStateValue(key, state[key]);
+        }
+      });
+    });
+    store2.setState(data);
+    reactRoot.render(render());
+    return () => {
+      unsubscribe();
+      const reactRoot2 = reactRoots.get(parentElement);
+      if (reactRoot2) {
+        reactRoot2.unmount();
+        reactRoots.delete(parentElement);
+      }
+    };
+  };
+  return renderHook;
+}
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -14258,6 +14321,8 @@ const createStoreImpl = (createState) => {
   return api;
 };
 const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
+var reactExports = requireReact();
+const React = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
 const identity = (arg) => arg;
 function useStore(api, selector = identity) {
   const slice = React.useSyncExternalStore(
@@ -14283,135 +14348,36 @@ function createNeoscopeStore(initialState, actions) {
   store2.initialState = () => initialState;
   return store2;
 }
-const reactRoots = /* @__PURE__ */ new WeakMap();
 function createNeoscopeRenderer(render, store2) {
-  {
-    const renderHook = (args) => {
-      const { data, parentElement, setStateValue } = args;
-      const rootElement = parentElement.querySelector(".react-root");
-      if (!rootElement) {
-        throw new Error("Unexpected: React root element not found");
-      }
-      let reactRoot = reactRoots.get(parentElement);
-      if (!reactRoot) {
-        reactRoot = clientExports.createRoot(rootElement);
-        reactRoots.set(parentElement, reactRoot);
-      }
-      const modelKeys = Object.keys(store2.initialState());
-      const unsubscribe = store2.subscribe((state) => {
-        modelKeys.forEach((key) => {
-          if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) {
-            console.log("Sending update:", key, "\n	old:", data[key], "\n	new:", state[key]);
-            setStateValue(key, state[key]);
-          }
-        });
-      });
-      store2.setState(data);
-      reactRoot.render(render());
-      return () => {
-        unsubscribe();
-        const reactRoot2 = reactRoots.get(parentElement);
-        if (reactRoot2) {
-          reactRoot2.unmount();
-          reactRoots.delete(parentElement);
-        }
-      };
-    };
-    return renderHook;
-  }
-}
-const usePassiveLayoutEffect = React[typeof document !== "undefined" && document.createElement !== void 0 ? "useLayoutEffect" : "useEffect"];
-const useLatest = (current) => {
-  const storedValue = reactExports.useRef(current);
-  reactExports.useEffect(() => {
-    storedValue.current = current;
-  });
-  return storedValue;
-};
-function _ref() {
-}
-function useResizeObserver(target, callback, options = {}) {
-  const resizeObserver = getResizeObserver(options.polyfill);
-  const storedCallback = useLatest(callback);
-  usePassiveLayoutEffect(() => {
-    let didUnsubscribe = false;
-    const targetEl = target && "current" in target ? target.current : target;
-    if (!targetEl) return _ref;
-    function cb(entry, observer) {
-      if (didUnsubscribe) return;
-      storedCallback.current(entry, observer);
-    }
-    resizeObserver.subscribe(targetEl, cb);
-    return () => {
-      didUnsubscribe = true;
-      resizeObserver.unsubscribe(targetEl, cb);
-    };
-  }, [target, resizeObserver, storedCallback]);
-  return resizeObserver.observer;
-}
-function createResizeObserver(polyfill) {
-  let ticking = false;
-  let allEntries = [];
-  const callbacks = /* @__PURE__ */ new Map();
-  const observer = new (polyfill || window.ResizeObserver)((entries, obs) => {
-    allEntries = allEntries.concat(entries);
-    function _ref2() {
-      const triggered = /* @__PURE__ */ new Set();
-      for (let i = 0; i < allEntries.length; i++) {
-        if (triggered.has(allEntries[i].target)) continue;
-        triggered.add(allEntries[i].target);
-        const cbs = callbacks.get(allEntries[i].target);
-        cbs === null || cbs === void 0 ? void 0 : cbs.forEach((cb) => cb(allEntries[i], obs));
-      }
-      allEntries = [];
-      ticking = false;
-    }
-    if (!ticking) {
-      window.requestAnimationFrame(_ref2);
-    }
-    ticking = true;
-  });
   return {
-    observer,
-    subscribe(target, callback) {
-      var _callbacks$get;
-      observer.observe(target);
-      const cbs = (_callbacks$get = callbacks.get(target)) !== null && _callbacks$get !== void 0 ? _callbacks$get : [];
-      cbs.push(callback);
-      callbacks.set(target, cbs);
-    },
-    unsubscribe(target, callback) {
-      var _callbacks$get2;
-      const cbs = (_callbacks$get2 = callbacks.get(target)) !== null && _callbacks$get2 !== void 0 ? _callbacks$get2 : [];
-      if (cbs.length === 1) {
-        observer.unobserve(target);
-        callbacks.delete(target);
-        return;
-      }
-      const cbIndex = cbs.indexOf(callback);
-      if (cbIndex !== -1) cbs.splice(cbIndex, 1);
-      callbacks.set(target, cbs);
-    }
-  };
+    anywidget: () => createAnywidgetRenderer(render, store2),
+    streamlit: () => createStreamlitRenderer(render, store2)
+  }["streamlit"]();
 }
-let _resizeObserver;
-const getResizeObserver = (polyfill) => !_resizeObserver ? _resizeObserver = createResizeObserver(polyfill) : _resizeObserver;
 const _Point = class _Point {
   constructor(y = 0, x = 0) {
     this.y = y;
     this.x = x;
   }
-  add(f) {
-    return f instanceof _Point ? new _Point(this.y + f.y, this.x + f.x) : new _Point(this.y + f, this.x + f);
+  add(fy, fx) {
+    if (fy instanceof _Point) return new _Point(this.y + fy.y, this.x + fy.x);
+    if (fx !== void 0) return new _Point(this.y + fy, this.x + fx);
+    return new _Point(this.y + fy, this.x + fy);
   }
-  subtract(f) {
-    return f instanceof _Point ? new _Point(this.y - f.y, this.x - f.x) : new _Point(this.y - f, this.x - f);
+  subtract(fy, fx) {
+    if (fy instanceof _Point) return new _Point(this.y - fy.y, this.x - fy.x);
+    if (fx !== void 0) return new _Point(this.y - fy, this.x - fx);
+    return new _Point(this.y - fy, this.x - fy);
   }
-  divide(f) {
-    return f instanceof _Point ? new _Point(this.y / f.y, this.x / f.x) : new _Point(this.y / f, this.x / f);
+  divide(fy, fx) {
+    if (fy instanceof _Point) return new _Point(this.y / fy.y, this.x / fy.x);
+    if (fx !== void 0) return new _Point(this.y / fy, this.x / fx);
+    return new _Point(this.y / fy, this.x / fy);
   }
-  multiply(f) {
-    return f instanceof _Point ? new _Point(this.y * f.y, this.x * f.x) : new _Point(this.y * f, this.x * f);
+  multiply(fy, fx) {
+    if (fy instanceof _Point) return new _Point(this.y * fy.y, this.x * fy.x);
+    if (fx !== void 0) return new _Point(this.y * fy, this.x * fx);
+    return new _Point(this.y * fy, this.x * fy);
   }
   half() {
     return new _Point(this.y * 0.5, this.x * 0.5);
@@ -14610,6 +14576,9 @@ const _Rect = class _Rect {
 };
 _Rect.EMPTY = Object.freeze(new _Rect(ORIGIN, ORIGIN));
 let Rect = _Rect;
+function isSameTransform(t1, t2) {
+  return t1.center.equals(t2.center) && t1.zoom === t2.zoom;
+}
 class Animator {
   constructor(opt, context) {
     this.context = context;
@@ -14659,18 +14628,21 @@ class Animator {
       if (initialCb) this._callback();
     }
     this._startedTime = Number(document.timeline.currentTime) + (delay || 0) - this.t;
-    this.animationFrameHandle = requestAnimationFrame((t) => {
+    const tick = (t) => {
       this.t = t - this._startedTime;
+      this.animationFrameHandle = null;
       if (this.t < 0) {
         return;
       } else if (this.t < this._duration) {
         this._callback();
+        this.animationFrameHandle = requestAnimationFrame(tick);
       } else if (this.t >= this._duration) {
         this.t = this._duration;
         this._callback();
         this.stop();
       }
-    });
+    };
+    this.animationFrameHandle = requestAnimationFrame(tick);
     return true;
   }
   restart(delay, initialCb = true) {
@@ -14900,57 +14872,105 @@ function ease(t, start, stop, f) {
     return start.interpolate(stop, t);
   }
 }
-function isSameTransform(t1, t2) {
-  return t1.center.equals(t2.center) && t1.zoom === t2.zoom;
+function useZoomTransform(sceneDomain, maxScale, sceneOuterRect) {
+  const [, redraw] = reactExports.useReducer((c) => c + 1, 0);
+  const controllerRef = reactExports.useRef(null);
+  if (controllerRef.current === null) {
+    controllerRef.current = new ZoomAreaController(
+      new ZoomAreaInternalState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
+      redraw
+    );
+  }
+  const controller = controllerRef.current;
+  controller.setAreaProperties(sceneDomain, maxScale, sceneOuterRect);
+  const areaRefCallback = reactExports.useCallback(
+    (node) => {
+      if (controller.areaNode !== node) controller.setAreaNode(node);
+    },
+    [controller]
+  );
+  reactExports.useLayoutEffect(() => {
+    if (!controller.areaNode) return;
+    const updateRect = () => controller.updateClientRect();
+    const resizeObserver = new ResizeObserver(updateRect);
+    resizeObserver.observe(controller.areaNode);
+    window.addEventListener("scroll", updateRect, { capture: true, passive: true });
+    window.addEventListener("resize", updateRect);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("scroll", updateRect, { capture: true });
+      window.removeEventListener("resize", updateRect);
+    };
+  }, [controller.areaNode, controller]);
+  return [controller.state, controller, areaRefCallback];
 }
-class ZoomArea {
+class ZoomAreaCalculator {
   // cache: sceneRect relative to sceneMainDomain
   /**
    * Create a ZoomAreaState to handle zoom and pan operations
-   * @param _ref: reference to the HTML element of the zoom area
-   * @param _sceneRect: bounding rectangle of the scene in scene coordinates
+   * @param _clientRect: size of the view in screen coordinates
+   * @param _sceneDomain: domain of the scene in scene coordinates
    * @param _maxScale: maximum number of screen pixel for a single unit of scene coordinates
-   * @param _sceneMainDomain: default visible area of the scene in scene coordinates (used to compute the default zoom level and relative coordinates)
+   * @param _sceneOuterRect: bounding rectangle of the scene in scene coordinates (of not provided uses sceneDomain)
    */
-  constructor(_ref2, _sceneRect, _maxScale, _sceneMainDomain) {
-    this._ref = _ref2;
-    this._sceneRect = _sceneRect;
+  constructor(_sceneDomain, _maxScale, _sceneOuterRect) {
+    this._sceneDomain = _sceneDomain;
     this._maxScale = _maxScale;
-    this._sceneMainDomain = _sceneMainDomain;
+    this._sceneOuterRect = _sceneOuterRect;
+    this._clientRect = Rect.EMPTY;
   }
   // === Zoom Area Properties ===
-  get node() {
-    return this._ref.current;
-  }
-  getViewBoundingRect() {
-    return this._ref.current ? Rect.fromDOMRect(this._ref.current.getBoundingClientRect()) : Rect.fromCenter(ORIGIN, ORIGIN);
-  }
   get viewSize() {
-    if (!this._viewSize) {
-      const rect = this.getViewBoundingRect();
-      this._viewSize = rect.size;
+    return this._clientRect.size;
+  }
+  get clientRect() {
+    return this._clientRect;
+  }
+  setClientRect(clientRect) {
+    if (clientRect.equals(this._clientRect)) return false;
+    const sameSize = clientRect.size.equals(this._clientRect.size);
+    if (!sameSize) this.invalidateScaleCaches();
+    this._clientRect = clientRect;
+    return !sameSize;
+  }
+  get sceneDomain() {
+    return this._sceneDomain;
+  }
+  setSceneDomain(p) {
+    if (p.equals(this._sceneDomain)) return false;
+    this._sceneDomain = p;
+    this.invalidateScaleCaches();
+    return true;
+  }
+  get sceneOuterRect() {
+    if (this._sceneOuterRect && !this._sceneOuterRect.isEmpty()) {
+      return this._sceneOuterRect;
     }
-    return this._viewSize;
+    return this._sceneDomain;
   }
-  set viewSize(s) {
-    this._viewSize = s;
-    this.invalidatedScaleConstants();
+  setSceneOuterRect(p) {
+    if (p === null || p.isEmpty()) {
+      if (this._sceneOuterRect === void 0) return false;
+      this._sceneOuterRect = void 0;
+    } else {
+      if (this._sceneOuterRect !== void 0 && p.equals(this._sceneOuterRect)) return false;
+      this._sceneOuterRect = p;
+    }
+    this.invalidateScaleCaches();
+    return true;
   }
-  get sceneRect() {
-    return this._sceneRect;
+  get maxScale() {
+    return this._maxScale;
   }
-  set sceneRect(p) {
-    this._sceneRect = p;
-    this.invalidatedScaleConstants();
+  setMaxScale(s) {
+    if (s === this._maxScale) return false;
+    if (s <= 0) throw new Error("maxScale must be positive");
+    this._maxScale = s;
+    this._maxZoom = void 0;
+    return true;
   }
-  get sceneMainDomain() {
-    return this._sceneMainDomain && !this._sceneMainDomain.isEmpty() ? this._sceneMainDomain : this.sceneRect;
-  }
-  set sceneMainDomain(p) {
-    this._sceneMainDomain = p;
-    this.invalidatedScaleConstants();
-  }
-  invalidatedScaleConstants() {
+  // === Zoom Area Scale Properties Caches ===
+  invalidateScaleCaches() {
     this._minScale = void 0;
     this._minZoom = void 0;
     this._defaultScale = void 0;
@@ -14959,48 +14979,45 @@ class ZoomArea {
   }
   get minScale() {
     if (this._minScale === void 0) {
-      if (this.sceneRect.isEmpty()) {
+      if (this.sceneOuterRect.isEmpty()) {
         return 1;
       }
-      this._minScale = Math.min(this.viewSize.divide(this.sceneRect.size).min() + 1e-8, this.maxScale);
+      this._minScale = Math.min(this.viewSize.divide(this.sceneOuterRect.size).min() + 1e-8, this.maxScale);
     }
     return this._minScale;
   }
   get minZoom() {
     if (this._minZoom === void 0) {
-      if (this.sceneRect.isEmpty()) {
+      if (this.sceneOuterRect.isEmpty()) {
         return 0;
       }
       this._minZoom = this.scale2zoom(this.minScale);
     }
     return this._minZoom;
   }
-  get maxScale() {
-    return this._maxScale;
-  }
   get defaultScale() {
     if (this._defaultScale === void 0) {
-      if (this.sceneMainDomain.isEmpty() || this.viewSize.hasZero()) {
+      if (this.sceneDomain.isEmpty() || this.viewSize.hasZero()) {
         return 1;
       } else {
-        this._defaultScale = this.viewSize.divide(this.sceneMainDomain.size).min() + 1e-8;
+        this._defaultScale = this.viewSize.divide(this.sceneDomain.size).min() + 1e-8;
       }
     }
     return this._defaultScale;
   }
   get relativeSceneBoundaries() {
     if (this._relativeSceneBoundaries === void 0) {
-      this._relativeSceneBoundaries = this.sceneRect.translate(this.sceneMainDomain.topLeft.neg()).scale(this.sceneMainDomain.size.inv());
+      this._relativeSceneBoundaries = this.sceneOuterRect.translate(this.sceneDomain.topLeft.neg()).scale(this.sceneDomain.size.inv());
     }
     return this._relativeSceneBoundaries;
   }
   get maxZoom() {
     if (this._maxZoom === void 0) {
-      this._maxZoom = this.scale2zoom(this.maxScale);
+      this._maxZoom = this.scale2zoom(this._maxScale);
     }
     return this._maxZoom;
   }
-  // === Conversions ===
+  // === Coordinates system conversions ===
   scale2zoom(s) {
     return Math.log2(s / this.defaultScale);
   }
@@ -15009,17 +15026,19 @@ class ZoomArea {
   }
   scene2relative(p) {
     if (p instanceof Point) {
-      return this.sceneMainDomain.isEmpty() ? new Point(0.5, 0.5) : p.subtract(this.sceneMainDomain.topLeft).divide(this.sceneMainDomain.size);
+      return this.sceneDomain.isEmpty() ? new Point(0.5, 0.5) : p.subtract(this.sceneDomain.topLeft).divide(this.sceneDomain.size);
     } else if (p instanceof Rect) {
-      return this.sceneMainDomain.isEmpty() ? Rect.unitary() : p.translate(this.sceneMainDomain.topLeft.neg()).scale(this.sceneMainDomain.size.inv());
+      return this.sceneDomain.isEmpty() ? Rect.unitary() : p.translate(this.sceneDomain.topLeft.neg()).scale(this.sceneDomain.size.inv());
     }
+    throw new Error("Invalid argument type: p must be Point or Rect");
   }
   relative2scene(p) {
     if (p instanceof Point) {
-      return p.multiply(this.sceneMainDomain.size).add(this.sceneMainDomain.topLeft);
+      return p.multiply(this.sceneDomain.size).add(this.sceneDomain.topLeft);
     } else if (p instanceof Rect) {
-      return p.scale(this.sceneMainDomain.size).translate(this.sceneMainDomain.topLeft);
+      return p.scale(this.sceneDomain.size).translate(this.sceneDomain.topLeft);
     }
+    throw new Error("Invalid argument type: p must be Point or Rect");
   }
   centerInSceneCoord(t) {
     return t.coord === "relative" ? this.relative2scene(t.center) : t.center;
@@ -15036,25 +15055,34 @@ class ZoomArea {
   }
   toRelativeCoord(p, t, coord) {
     if (p instanceof Point) {
+      if (coord === "client") {
+        p = p.subtract(this._clientRect.topLeft);
+        coord = "view";
+      }
       switch (coord) {
         case "view":
-          if (this.sceneMainDomain.isEmpty()) return new Point(0.5, 0.5);
-          return p.subtract(this.viewSize.divide(2)).divide(this.zoom2scale(t.zoom)).divide(this.sceneMainDomain.size).add(this.centerInRelativeCoord(t));
+          if (this.sceneDomain.isEmpty()) return new Point(0.5, 0.5);
+          return p.subtract(this.viewSize.divide(2)).divide(this.zoom2scale(t.zoom)).divide(this.sceneDomain.size).add(this.centerInRelativeCoord(t));
         // Translate accordingly to the scene center
         case "relative":
           return p;
         default:
           return this.scene2relative(p);
       }
-    } else {
+    } else if (p instanceof Rect) {
       return new Rect(
         this.toRelativeCoord(p.topLeft, t, coord),
         this.toRelativeCoord(p.bottomRight, t, coord)
       );
     }
+    throw new Error("Invalid argument type: p must be Point or Rect");
   }
   toSceneCoord(p, t, coord) {
     if (p instanceof Point) {
+      if (coord === "client") {
+        p = p.subtract(this._clientRect.topLeft);
+        coord = "view";
+      }
       switch (coord) {
         case "view":
           return p.subtract(this.viewSize.divide(2)).divide(this.zoom2scale(t.zoom)).add(this.centerInSceneCoord(t));
@@ -15074,6 +15102,7 @@ class ZoomArea {
   toViewCoord(p, t, coord) {
     if (p instanceof Point) {
       if (coord === "view") return p;
+      if (coord === "client") return p.subtract(this._clientRect.topLeft);
       if (coord === "relative") p = this.toSceneCoord(p, t, "relative");
       return p.subtract(this.centerInSceneCoord(t)).multiply(this.zoom2scale(t.zoom)).add(this.viewSize.divide(2));
     } else {
@@ -15086,11 +15115,11 @@ class ZoomArea {
   transform2VisibleArea(t) {
     return Rect.fromCenter(this.centerInSceneCoord(t), this.viewSize.divide(this.zoom2scale(t.zoom)));
   }
-  visibleArea2Transform(visibleArea, coord) {
+  visibleArea2Transform(visibleArea, coord = "scene") {
     let center = visibleArea.center;
     let visibleSize = visibleArea.size;
     if (coord === "relative")
-      visibleSize = visibleSize.multiply(this.sceneMainDomain.size);
+      visibleSize = visibleSize.multiply(this.sceneDomain.size);
     else center = this.scene2relative(center);
     return {
       zoom: this.scale2zoom(this.viewSize.divide(visibleSize).min()),
@@ -15104,12 +15133,12 @@ class ZoomArea {
   }
   constraintCenter(transform, previousCenter) {
     const center = transform.center;
-    if (isNaN(transform.center.x) || isNaN(transform.center.y) || this.sceneRect.isEmpty()) {
+    if (isNaN(transform.center.x) || isNaN(transform.center.y) || this.sceneOuterRect.isEmpty()) {
       return { ...transform, center: ORIGIN };
     }
     const scale = this.zoom2scale(transform.zoom);
-    const pad = this.viewSize.divide(2 * scale).clip(this.sceneRect.size.divide(2));
-    let centerBoundaries = transform.coord === "relative" ? this.relativeSceneBoundaries.pad(pad.divide(this.sceneMainDomain.size)) : this.sceneRect.pad(pad);
+    const pad = this.viewSize.divide(2 * scale).clip(this.sceneOuterRect.size.divide(2));
+    let centerBoundaries = transform.coord === "relative" ? this.relativeSceneBoundaries.pad(pad.divide(this.sceneDomain.size)) : this.sceneOuterRect.pad(pad);
     if (previousCenter) centerBoundaries = centerBoundaries.union(previousCenter);
     return { ...transform, center: center.clip(centerBoundaries) };
   }
@@ -15117,7 +15146,7 @@ class ZoomArea {
     const zoom = this.constraintZoom(t.zoom);
     return this.constraintCenter({ ...t, zoom });
   }
-  applyZoom(t, dZoom, zoomCenter, coord) {
+  applyZoom(t, dZoom, zoomCenter, coord = "scene") {
     const newZoom = this.constraintZoom(t.zoom + dZoom);
     dZoom = newZoom - t.zoom;
     if (dZoom === 0) {
@@ -15126,6 +15155,10 @@ class ZoomArea {
     if (zoomCenter) {
       let center = this.centerInSceneCoord(t);
       let dCenter;
+      if (coord === "client") {
+        zoomCenter = zoomCenter.subtract(this._clientRect.topLeft);
+        coord = "view";
+      }
       if (coord === "view") {
         dCenter = zoomCenter.subtract(this.viewSize.divide(2)).multiply(1 / this.zoom2scale(t.zoom) - 1 / this.zoom2scale(newZoom));
       } else {
@@ -15141,50 +15174,57 @@ class ZoomArea {
     }
   }
 }
-class ZoomTransform {
-  constructor(zoomArea, transform) {
+class ZoomAreaInternalState {
+  constructor(zoomArea) {
     this.zoomArea = zoomArea;
-    this.dispatch = () => {
-    };
+    this._t = { center: new Point(0.5, 0.5), zoom: 0, coord: "relative" };
     this._scale = 1;
-    this._t = {
-      center: new Point(0.5, 0.5),
-      zoom: 0,
-      coord: "relative"
-    };
     this.animator = new Animator({
-      callback: (t, ctx) => {
-        if (ctx?.zoomCenter && ctx?.initialTransform) {
-          this.dispatch({
-            animStep: this.zoomArea.applyZoom(
-              ctx.initialTransform,
-              t["zoom"] - ctx.initialTransform.zoom,
-              ctx.zoomCenter,
-              "relative"
-            )
-          });
-        } else {
-          this.dispatch({
-            animStep: {
-              center: t["center"],
-              zoom: t["zoom"],
-              coord: "relative"
-            }
-          });
-        }
-      },
-      onStop: () => {
-        this.animationTarget = void 0;
-      }
+      onStop: () => this.animTarget = void 0
     });
-    this.transform = transform;
   }
+  // === Internal State Properties ===
   get transform() {
     return this._t;
   }
   set transform(t) {
+    this.setTransform(t);
+  }
+  setTransform(t, assume_different = false) {
+    if (!assume_different && isSameTransform(t, this._t)) return false;
     this._t = t;
     this._scale = this.zoomArea.zoom2scale(t.zoom);
+    return true;
+  }
+  get scale() {
+    return this._scale;
+  }
+  get zoom() {
+    return this._t.zoom;
+  }
+  get center() {
+    return this.zoomArea.centerInSceneCoord(this._t);
+  }
+  get relativeCenter() {
+    return this.zoomArea.centerInRelativeCoord(this._t);
+  }
+  get sceneDomain() {
+    return this.zoomArea.sceneDomain;
+  }
+  isMinZoom() {
+    return this._t.zoom <= this.zoomArea.minZoom;
+  }
+  isMaxZoom() {
+    return this._t.zoom >= this.zoomArea.maxZoom;
+  }
+  get sceneRect() {
+    return this.zoomArea.sceneOuterRect;
+  }
+  get viewOffset() {
+    return this.zoomArea.centerInSceneCoord(this._t).multiply(this.scale).subtract(this.zoomArea.viewSize.divide(2));
+  }
+  get visibleArea() {
+    return Rect.fromCenter(this._t.center, this.zoomArea.viewSize.divide(this._t.zoom));
   }
   toSceneCoord(p, coord) {
     return this.zoomArea.toSceneCoord(p, this._t, coord);
@@ -15201,417 +15241,209 @@ class ZoomTransform {
   scene2view(p) {
     return p.subtract(this.center).multiply(this.scale).add(this.zoomArea.viewSize.divide(2));
   }
-  get scale() {
-    return this._scale;
+  client2scene(p) {
+    return p.subtract(this.zoomArea.clientRect.center).divide(this.scale).add(this.center);
   }
-  get center() {
-    return this.zoomArea.centerInSceneCoord(this._t);
+  client2view(py, px) {
+    const p = typeof py === "number" ? new Point(py, px) : py;
+    return p.subtract(this.zoomArea.clientRect.topLeft);
   }
-  get viewOffset() {
-    return this.zoomArea.centerInSceneCoord(this._t).multiply(this.scale).subtract(this.zoomArea.viewSize.divide(2));
-  }
-  get visibleArea() {
-    return this.zoomArea.transform2VisibleArea(this.transform);
-  }
-  get sceneDomain() {
-    return this.zoomArea.sceneMainDomain;
-  }
-  get sceneRect() {
-    return this.zoomArea.sceneRect;
+  scene2client(p) {
+    return p.subtract(this.center).multiply(this.scale).add(this.zoomArea.clientRect.center);
   }
 }
-function useZoomTransform(ref, sceneRect, maxScale, sceneDefaultRect, syncTransform) {
-  const iniAreaState = new ZoomArea(ref, sceneRect, maxScale, sceneDefaultRect);
-  const iniTransform = {
-    center: new Point(0.5, 0.5),
-    zoom: 0,
-    coord: "relative"
-  };
-  const [[zoomTransform], dispatch] = reactExports.useReducer(
-    (zoomState, action) => {
-      const [zoomTransform2, prevTr] = zoomState;
-      let tr = prevTr;
-      const state = zoomTransform2.zoomArea;
-      let newTr = tr;
-      if ("syncTransform" in action) {
-        newTr = {
-          ...action.syncTransform,
-          zoom: state.constraintZoom(action.syncTransform.zoom)
-        };
-        zoomTransform2.transform = newTr;
-        zoomTransform2.animator.stop();
-        return [zoomTransform2, newTr];
-      } else if ("animStep" in action) {
-        newTr = action.animStep;
+class ZoomAreaController {
+  // Reference to the HTML element representing the zoom area
+  constructor(state, redrawZoomArea) {
+    this.state = state;
+    this.redrawZoomArea = redrawZoomArea;
+    this._areaNode = null;
+  }
+  _setTransform(t, redraw_on_change = true, assume_different = false) {
+    if (!assume_different && isSameTransform(t, this.state.transform)) return false;
+    this.state.transform = t;
+    if (redraw_on_change) this.redrawZoomArea?.();
+    return true;
+  }
+  // === Area Properties ===
+  _constrainCurrentTransform(redraw_on_change = true) {
+    const t = this.state.transform;
+    const newT = this.state.zoomArea.constraintTransform(t);
+    if (isSameTransform(t, newT)) return false;
+    this.state.transform = newT;
+    if (redraw_on_change) this.redrawZoomArea?.();
+    return true;
+  }
+  setAreaProperties(sceneDomain, maxScale, sceneOuterRect, redraw_on_change = true) {
+    let changed = 0;
+    changed += this.state.zoomArea.setSceneDomain(sceneDomain) ? 1 : 0;
+    changed += this.state.zoomArea.setSceneOuterRect(sceneOuterRect || null) ? 1 : 0;
+    changed += this.state.zoomArea.setMaxScale(maxScale) ? 1 : 0;
+    if (changed <= 0) return false;
+    return this._constrainCurrentTransform(redraw_on_change);
+  }
+  get areaNode() {
+    return this._areaNode;
+  }
+  setAreaNode(node, redraw_on_change = true) {
+    this._areaNode = node;
+    this.updateClientRect(redraw_on_change);
+  }
+  updateClientRect(redraw_on_change = true) {
+    if (!this._areaNode) return;
+    return this.setClientRect(Rect.fromDOMRect(this._areaNode.getBoundingClientRect()), redraw_on_change);
+  }
+  setClientRect(clientRect, redraw_on_change = true) {
+    if (this.state.zoomArea.setClientRect(clientRect)) {
+      this.state.setTransform(this.state.transform, true);
+      if (redraw_on_change) this.redrawZoomArea?.();
+    }
+  }
+  // === Animations ===
+  _animatorRun(lastTr, nextTr, zoomAnim, relativeCenterAnim, opts, cb) {
+    if (opts?.cancelable === false) this.state.animTarget = nextTr;
+    else this.state.animTarget = lastTr;
+    this.state.animator.run(
+      {
+        center: relativeCenterAnim,
+        zoom: zoomAnim
+      },
+      opts?.duration || 750,
+      0,
+      opts?.easing || "linear",
+      false,
+      cb || ((t) => this._setTransform({ ...t, coord: "relative" }))
+    );
+  }
+  _animateZoomPan(lastTr, nextTr, opts) {
+    const area = this.state.zoomArea;
+    const c0 = area.centerInRelativeCoord(lastTr);
+    const c1 = area.centerInRelativeCoord(nextTr);
+    let panAnim = opts?.centerAnim;
+    if (panAnim) panAnim.setFirstLastValues(c0, c1);
+    let zoomAnim = opts?.zoomAnim;
+    if (zoomAnim) {
+      zoomAnim.setFirstLastValues(lastTr.zoom, nextTr.zoom);
+    } else {
+      if (lastTr.zoom < nextTr.zoom) {
+        zoomAnim = Animation.simple(lastTr.zoom, nextTr.zoom, "cubicOut");
       } else {
-        if (zoomTransform2.animator.running) {
-          if (zoomTransform2.animationTarget) {
-            tr = zoomTransform2.animationTarget;
-            newTr = tr;
-          }
-          zoomTransform2.animator.stop();
-        }
-        if ("transform" in action) {
-          newTr = state.constraintTransform(action.transform);
-        } else if ("center" in action) {
-          const center = state.toSceneCoord(action.center, tr, action.coord);
-          newTr = state.constraintCenter({
-            ...tr,
-            center,
-            coord: "scene"
-          });
-        } else if ("zoom" in action) {
-          newTr = state.applyZoom(tr, action.zoom, action.zoomCenter, action.zoomCenterCoord);
-        } else if ("pan" in action) {
-          let dCenter = action.pan;
-          if (action.coord === "relative") {
-            dCenter = dCenter.multiply(state.sceneMainDomain.size);
-          } else if (action.coord === "view") {
-            dCenter = dCenter.multiply(zoomTransform2.scale);
-          }
-          newTr = state.constraintCenter(
-            {
-              zoom: tr.zoom,
-              center: state.centerInSceneCoord(tr).add(dCenter)
-            },
-            state.centerInSceneCoord(tr)
-          );
-        } else if ("ensureVisible" in action) {
-          newTr = state.visibleArea2Transform(action.ensureVisible);
-        } else if ("sceneRect" in action) {
-          zoomTransform2.zoomArea.sceneRect = action.sceneRect;
-          newTr = zoomTransform2.zoomArea.constraintTransform(tr);
-        } else if ("sceneDefaultRect" in action) {
-          const relativeTransform = state.relativeTransform(tr);
-          zoomTransform2.zoomArea.sceneMainDomain = action.sceneDefaultRect;
-          newTr = zoomTransform2.zoomArea.constraintTransform(relativeTransform);
-        } else if ("viewSize" in action) {
-          zoomTransform2.zoomArea.viewSize = action.viewSize;
-          newTr = zoomTransform2.zoomArea.constraintTransform(tr);
-        }
-        if ("animation" in action) {
-          let easing = action.animation?.easing || "linear";
-          let centerAnim = action.animation?.centerAnim;
-          const c0 = state.centerInRelativeCoord(prevTr);
-          const c1 = state.centerInRelativeCoord(newTr);
-          if (centerAnim) {
-            centerAnim.firstKey.v = c0;
-            centerAnim.lastKey.v = c1;
-          }
-          let zoomAnim = action.animation?.scaleAnim;
-          if (zoomAnim) {
-            zoomAnim.firstKey.v = prevTr.zoom;
-            zoomAnim.lastKey.v = newTr.zoom;
-          } else {
-            if (newTr.zoom < prevTr.zoom) {
-              zoomAnim = Animation.simple(prevTr.zoom, newTr.zoom, "cubicOut");
-            } else if (newTr.zoom - prevTr.zoom < -0.5 || // Small zoom in
-            state.centerInSceneCoord(tr).subtract(state.centerInSceneCoord(newTr)).norm() * zoomTransform2.scale < state.viewSize.max() / 2) {
-              zoomAnim = Animation.simple(prevTr.zoom, newTr.zoom, "cubicInOut");
-            } else {
-              const zoomOut = Math.sqrt(prevTr.zoom + 1) - 1;
-              zoomAnim = new Animation([
-                { t: 0, v: prevTr.zoom, easing: "cubicOut" },
-                { t: 0.3, v: zoomOut, easing: "cubicInOut" },
-                { t: 1, v: newTr.zoom }
-              ]);
-              if (!centerAnim) {
-                centerAnim = new Animation([
-                  { t: 0, v: c0, easing: "cubicInOut" },
-                  { t: 0.9, v: c1 }
-                ]);
-              }
-            }
-          }
-          let animatorCtx = void 0;
-          if (!centerAnim) {
-            if ("zoomCenter" in action && action?.zoomCenter) {
-              animatorCtx = {
-                zoomCenter: zoomTransform2.toRelativeCoord(action.zoomCenter, action.zoomCenterCoord),
-                initialTransform: prevTr
-              };
-              centerAnim = null;
-            } else {
-              centerAnim = Animation.simple(c0, c1);
-            }
-          }
-          zoomTransform2.animator.run(
-            {
-              center: centerAnim,
-              zoom: zoomAnim
-            },
-            action.animation?.duration || 750,
-            0,
-            easing,
-            false,
-            animatorCtx
-          );
-          if (action.animation?.cancelable === false) {
-            zoomTransform2.animationTarget = newTr;
-          }
-          return [zoomTransform2, tr];
-        }
-      }
-      if (zoomTransform2.syncTransform && !isSameTransform(newTr, prevTr)) {
-        zoomTransform2.syncTransform[1](zoomTransform2.zoomArea.relativeTransform(newTr));
-      }
-      zoomTransform2.transform = newTr;
-      return [zoomTransform2, newTr];
-    },
-    [new ZoomTransform(iniAreaState, iniTransform), iniTransform]
-  );
-  reactExports.useLayoutEffect(() => {
-    dispatch({ sceneDefaultRect: null });
-  }, [sceneDefaultRect?.left, sceneDefaultRect?.top, sceneDefaultRect?.width, sceneDefaultRect?.height]);
-  reactExports.useLayoutEffect(() => {
-    dispatch({ sceneRect });
-  }, [sceneRect.left, sceneRect.top, sceneRect.width, sceneRect.height]);
-  reactExports.useLayoutEffect(() => {
-    zoomTransform.syncTransform = syncTransform;
-    {
-      return;
-    }
-  }, [syncTransform, zoomTransform]);
-  useResizeObserver(ref.current, (entry) => {
-    const { width, height } = entry.contentRect;
-    const viewSize = new Point(height, width);
-    if (viewSize !== zoomTransform.zoomArea.viewSize) {
-      dispatch({ viewSize });
-    }
-  });
-  if (zoomTransform.dispatch !== dispatch) {
-    zoomTransform.dispatch = dispatch;
-  }
-  return zoomTransform;
-}
-function createSceneMouseEvent(ev, cursor, viewCursor, movement) {
-  return {
-    cursor,
-    viewCursor,
-    movement,
-    altKey: ev.altKey,
-    ctrlKey: ev.ctrlKey,
-    shiftKey: ev.shiftKey,
-    metaKey: ev.metaKey,
-    button: ev.button,
-    buttons: ev.buttons
-  };
-}
-function createSceneWheelEvent(ev, cursor, viewCursor) {
-  return {
-    cursor,
-    viewCursor,
-    deltaX: ev.deltaX / 200,
-    deltaY: ev.deltaY / 200,
-    altKey: ev.altKey,
-    ctrlKey: ev.ctrlKey,
-    shiftKey: ev.shiftKey,
-    metaKey: ev.metaKey,
-    button: ev.button,
-    buttons: ev.buttons
-  };
-}
-class ZoomControls {
-  constructor(zoomTransform) {
-    this.zoomTransform = zoomTransform;
-    this.panning = false;
-    this.initialEvent = void 0;
-    this.lastEvent = void 0;
-  }
-  startPan(ev) {
-    this.zoomTransform.zoomArea.node?.requestPointerLock();
-    this.panning = true;
-    this.lastEvent = ev;
-    this.initialEvent = ev;
-  }
-  endPan() {
-    document.exitPointerLock();
-    this.panning = false;
-    this.lastEvent = void 0;
-    this.initialEvent = void 0;
-  }
-  pan(translate) {
-    if (!translate.isZero()) {
-      this.zoomTransform.dispatch({ pan: translate });
-    }
-  }
-  zoom(factor, center) {
-    this.zoomTransform.dispatch({ zoom: factor, zoomCenter: center });
-  }
-}
-function useSceneMouseEventListener(zoomTransform, userEvents, hoverEvents = true, syncCursorPos) {
-  const [cursorPos, setCursorPosState] = reactExports.useState(null);
-  const setCursorPos = setCursorPosState;
-  reactExports.useLayoutEffect(() => {
-  }, [syncCursorPos]);
-  const events = reactExports.useMemo(() => {
-    const events2 = {};
-    {
-      events2.onMouseDown = (ev, ctrls) => {
-        if (ev.button === 0 || ev.button === 1) {
-          ctrls.startPan(ev);
-          setCursorPos(null);
-        }
-      };
-    }
-    events2.onMouseMove = (ev, ctrls) => {
-      if (ctrls.panning && ctrls.lastEvent) {
-        ctrls.pan(ev.movement.neg());
-      } else {
-        if (hoverEvents) {
-          setCursorPos(ev.cursor.floor());
-        }
-      }
-      ctrls.lastEvent = ev;
-    };
-    events2.onMouseUp = (ev, ctrls) => {
-      if (ctrls.panning && ev.button === ctrls.initialEvent?.button) {
-        ctrls.endPan();
-        setCursorPos(ev.cursor.floor());
-      }
-    };
-    events2.onMouseEnter = (ev, ctrls) => {
-      if (hoverEvents) {
-        setCursorPos(ev.cursor.floor());
-      }
-    };
-    events2.onMouseLeave = (ev, ctrls) => {
-      if (ctrls.panning) {
-        ctrls.endPan();
-      }
-      if (hoverEvents) {
-        setCursorPos(null);
-      }
-    };
-    events2.onClick = (ev, ctrls) => {
-      if (ctrls.panning && ev.button === ctrls.initialEvent?.button) {
-        ctrls.endPan();
-      }
-    };
-    {
-      events2.onWheel = (ev) => {
-        let zoomAction = {
-          zoom: -ev.deltaY,
-          zoomCenter: ev.viewCursor,
-          zoomCenterCoord: "view"
-        };
-        if (zoomTransform.transform.zoom == zoomTransform.zoomArea.minZoom && ev.deltaY > 0) {
-          const panVector = zoomTransform.toRelativeCoord(zoomTransform.transform.center, zoomTransform.transform.coord).subtract(new Point(0.5, 0.5)).clip_norm(0.5 * ev.deltaY);
-          zoomAction = {
-            pan: panVector.neg(),
-            coord: "relative"
-          };
-        }
-        if (Math.abs(ev.deltaY) >= 1) {
-          zoomTransform.dispatch({
-            ...zoomAction,
-            animation: { duration: 200, cancelable: false }
-          });
+        const panDiff = area.centerInSceneCoord(lastTr).subtract(area.centerInSceneCoord(nextTr)).norm();
+        if (panDiff < area.viewSize.max() / 2) {
+          zoomAnim = Animation.simple(lastTr.zoom, nextTr.zoom, "cubicInOut");
         } else {
-          zoomTransform.dispatch(zoomAction);
-        }
-      };
-    }
-    return events2;
-  }, [userEvents]);
-  reactExports.useEffect(() => {
-    const node = zoomTransform.zoomArea.node;
-    if (!node) {
-      return;
-    }
-    const zoomCtrls = new ZoomControls(zoomTransform);
-    const wheelEL = (ev) => {
-      if (!events?.onWheel) {
-        return;
-      }
-      ev.preventDefault();
-      const bounds = Rect.fromDOMRect(node.getBoundingClientRect());
-      const viewPos = new Point(ev.clientY, ev.clientX).subtract(bounds.topLeft);
-      const sceneWheelEvent = createSceneWheelEvent(ev, zoomTransform.view2scene(viewPos), viewPos);
-      events?.onWheel(sceneWheelEvent, zoomCtrls);
-    };
-    const clickTimers = {
-      0: null,
-      1: null,
-      2: null,
-      3: null,
-      4: null
-    };
-    const mouseEL = (ev) => {
-      ev.preventDefault();
-      const bounds = Rect.fromDOMRect(node.getBoundingClientRect());
-      const viewPos = new Point(ev.clientY, ev.clientX).subtract(bounds.topLeft);
-      const sceneMouseEvent = createSceneMouseEvent(
-        ev,
-        zoomTransform.view2scene(viewPos),
-        viewPos,
-        new Point(ev.movementY, ev.movementX).divide(zoomTransform.scale)
-      );
-      const clickTimer = clickTimers[ev.button];
-      if (ev.type === "mousemove") {
-        if (clickTimer) {
-          if (viewPos.subtract(clickTimer.startPos).norm() < 5) {
-            clickTimer.lastPos = viewPos;
-            return;
+          const zoomOut = Math.sqrt(lastTr.zoom + 1) - 1;
+          zoomAnim = new Animation([
+            { t: 0, v: lastTr.zoom, easing: "cubicOut" },
+            { t: 0.3, v: zoomOut, easing: "cubicInOut" },
+            { t: 1, v: nextTr.zoom }
+          ]);
+          if (!panAnim) {
+            panAnim = new Animation([
+              { t: 0, v: c0, easing: "cubicInOut" },
+              { t: 0.9, v: c1 }
+            ]);
           }
-          clearTimeout(clickTimer.timeout);
-          clickTimers[ev.button] = null;
-          events?.onMouseDown && events.onMouseDown(clickTimer.mouseDownEvent, zoomCtrls);
-          const delta = clickTimer.lastPos.subtract(clickTimer.startPos).divide(zoomTransform.scale);
-          sceneMouseEvent.movement = sceneMouseEvent.movement.add(delta);
-          sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
         }
-        events?.onMouseMove && events.onMouseMove(sceneMouseEvent, zoomCtrls);
-      } else if (ev.type === "mousedown") {
-        if (clickTimer) {
-          clearTimeout(clickTimer.timeout);
-        }
-        clickTimers[ev.button] = {
-          startPos: viewPos,
-          lastPos: viewPos,
-          mouseDownEvent: sceneMouseEvent,
-          timeout: setTimeout(() => {
-            const c = clickTimers[ev.button];
-            if (c) {
-              clickTimers[ev.button] = null;
-              events?.onMouseDown && events.onMouseDown(c.mouseDownEvent, zoomCtrls);
-              const delta = c.lastPos.subtract(c.startPos).divide(zoomTransform.scale);
-              sceneMouseEvent.movement = delta;
-              sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
-              events?.onMouseMove && events.onMouseMove(sceneMouseEvent, zoomCtrls);
-            }
-          }, 750)
-        };
-      } else if (ev.type === "mouseup") {
-        if (clickTimer) {
-          clearTimeout(clickTimer.timeout);
-          clickTimers[ev.button] = null;
-          events?.onClick && events.onClick(sceneMouseEvent, zoomCtrls);
-        } else {
-          events?.onMouseUp && events.onMouseUp(sceneMouseEvent, zoomCtrls);
-        }
-      } else if (ev.type === "mouseenter") {
-        events?.onMouseEnter && events.onMouseEnter(sceneMouseEvent, zoomCtrls);
-      } else if (ev.type === "mouseleave") {
-        events?.onMouseLeave && events.onMouseLeave(sceneMouseEvent, zoomCtrls);
       }
+    }
+    if (!panAnim) panAnim = Animation.simple(c0, c1);
+    const animTick = (t) => {
+      this._setTransform({ ...t, coord: "relative" }, true, true);
     };
-    node.addEventListener("wheel", wheelEL, { passive: false });
-    node.addEventListener("mousemove", mouseEL);
-    node.addEventListener("mousedown", mouseEL);
-    node.addEventListener("mouseup", mouseEL);
-    node.addEventListener("mouseenter", mouseEL);
-    node.addEventListener("mouseleave", mouseEL);
-    return () => {
-      node.removeEventListener("wheel", wheelEL);
-      node.removeEventListener("mousemove", mouseEL);
-      node.removeEventListener("mousedown", mouseEL);
-      node.removeEventListener("mouseup", mouseEL);
-      node.removeEventListener("mouseenter", mouseEL);
-      node.removeEventListener("mouseleave", mouseEL);
-    };
-  }, [zoomTransform, zoomTransform.zoomArea.node]);
-  return cursorPos;
+    this._animatorRun(lastTr, nextTr, zoomAnim, panAnim, opts, animTick);
+  }
+  /**
+   * Animate a simple zoom movement
+   * @param lastTr The last transform state.
+   * @param nextTr The next transform state.
+   * @param zoomCenter The center point of the zoom. /!\ Must be in scene coordinates!
+   * @param opts Animation options.
+   */
+  _animateZoom(lastTr, nextTr, zoomCenter, opts) {
+    const area = this.state.zoomArea;
+    let zoomAnim = opts?.zoomAnim;
+    if (zoomAnim) zoomAnim.setFirstLastValues(lastTr.zoom, nextTr.zoom);
+    else zoomAnim = Animation.simple(lastTr.zoom, nextTr.zoom);
+    const animTick = (t) => this._setTransform(area.applyZoom(lastTr, t.zoom - lastTr.zoom, zoomCenter, "scene"), true, true);
+    this._animatorRun(lastTr, nextTr, zoomAnim, null, opts, animTick);
+  }
+  // === Actions ===
+  _actionInit() {
+    const currentTr = this.state.transform;
+    let tr = currentTr;
+    if (this.state.animator.running) {
+      if (this.state.animTarget) tr = this.state.animTarget;
+      this.state.animator.stop();
+    }
+    return [currentTr, tr, this.state.zoomArea];
+  }
+  setTransform(t, anim) {
+    const [prevTr] = this._actionInit();
+    t = this.state.zoomArea.constraintTransform(t);
+    if (anim) this._animateZoomPan(prevTr, t, anim);
+    else this._setTransform(t);
+  }
+  setCenter(center, coord = "scene", anim) {
+    const [prevTr, tr, area] = this._actionInit();
+    if (coord === "relative") center = center.multiply(area.sceneDomain.size);
+    else if (coord === "view") center = center.divide(this.state.scale).add(area.centerInSceneCoord(tr));
+    const nextTr = area.constraintCenter(
+      {
+        zoom: tr.zoom,
+        center
+      },
+      area.centerInSceneCoord(tr)
+    );
+    if (anim) this._animateZoomPan(prevTr, nextTr, anim);
+    else this._setTransform(nextTr);
+  }
+  setCenterX(centerX, coord = "scene", anim) {
+    centerX = this.state.toSceneCoord(new Point(0, centerX), coord).x;
+    this.setCenter(new Point(this.state.center.y, centerX), "scene", anim);
+  }
+  setCenterY(centerY, coord = "scene", anim) {
+    centerY = this.state.toSceneCoord(new Point(centerY, 0), coord).y;
+    this.setCenter(new Point(centerY, this.state.center.x), "scene", anim);
+  }
+  setZoom(zoom, anim) {
+    const [prevTr, _, area] = this._actionInit();
+    const nextTr = area.constraintTransform({
+      zoom,
+      center: this.state.center
+    });
+    if (anim) this._animateZoom(prevTr, nextTr, this.state.center, anim);
+    else this._setTransform(nextTr);
+  }
+  zoomBy(dZoom, zoomCenter, coord, anim) {
+    const [prevTr, tr, area] = this._actionInit();
+    const nextTr = area.applyZoom(tr, dZoom, zoomCenter, coord);
+    if (anim) this._animateZoom(prevTr, nextTr, zoomCenter, anim);
+    else this._setTransform(nextTr);
+  }
+  panBy(dCenter, coord = "view", anim) {
+    const [prevTr, tr, area] = this._actionInit();
+    if (coord === "relative") dCenter = dCenter.multiply(area.sceneDomain.size);
+    else if (coord === "view") dCenter = dCenter.divide(this.state.scale);
+    const center = area.centerInSceneCoord(tr);
+    const nextTr = area.constraintCenter({ zoom: tr.zoom, center: center.add(dCenter), coord: "scene" }, center);
+    if (anim) this._animateZoomPan(prevTr, nextTr, anim);
+    else this._setTransform(nextTr);
+  }
+  panHorizontallyBy(delta, coord = "view", anim) {
+    this.panBy(new Point(delta, 0), coord, anim);
+  }
+  panVerticallyBy(delta, coord = "view", anim) {
+    this.panBy(new Point(0, delta), coord, anim);
+  }
+  setVisibleRect(visibleRect, coord = "scene", anim) {
+    if (visibleRect.isEmpty()) return;
+    const [prevTr] = this._actionInit();
+    visibleRect = this.state.toSceneCoord(visibleRect, coord);
+    const nextTr = this.state.zoomArea.visibleArea2Transform(visibleRect, "scene");
+    if (anim) this._animateZoomPan(prevTr, nextTr, anim);
+    else this._setTransform(nextTr);
+  }
 }
 function parseImageString(imageString) {
   const headerIndex = imageString.indexOf("|");
@@ -15620,6 +15452,82 @@ function parseImageString(imageString) {
   const data = `data:image/${ext};base64,` + imageString.slice(headerIndex + 1);
   return { height, width, data };
 }
+const usePassiveLayoutEffect = React[typeof document !== "undefined" && document.createElement !== void 0 ? "useLayoutEffect" : "useEffect"];
+const useLatest = (current) => {
+  const storedValue = reactExports.useRef(current);
+  reactExports.useEffect(() => {
+    storedValue.current = current;
+  });
+  return storedValue;
+};
+function _ref() {
+}
+function useResizeObserver(target, callback, options = {}) {
+  const resizeObserver = getResizeObserver(options.polyfill);
+  const storedCallback = useLatest(callback);
+  usePassiveLayoutEffect(() => {
+    let didUnsubscribe = false;
+    const targetEl = target && "current" in target ? target.current : target;
+    if (!targetEl) return _ref;
+    function cb(entry, observer) {
+      if (didUnsubscribe) return;
+      storedCallback.current(entry, observer);
+    }
+    resizeObserver.subscribe(targetEl, cb);
+    return () => {
+      didUnsubscribe = true;
+      resizeObserver.unsubscribe(targetEl, cb);
+    };
+  }, [target, resizeObserver, storedCallback]);
+  return resizeObserver.observer;
+}
+function createResizeObserver(polyfill) {
+  let ticking = false;
+  let allEntries = [];
+  const callbacks = /* @__PURE__ */ new Map();
+  const observer = new (polyfill || window.ResizeObserver)((entries, obs) => {
+    allEntries = allEntries.concat(entries);
+    function _ref2() {
+      const triggered = /* @__PURE__ */ new Set();
+      for (let i = 0; i < allEntries.length; i++) {
+        if (triggered.has(allEntries[i].target)) continue;
+        triggered.add(allEntries[i].target);
+        const cbs = callbacks.get(allEntries[i].target);
+        cbs === null || cbs === void 0 ? void 0 : cbs.forEach((cb) => cb(allEntries[i], obs));
+      }
+      allEntries = [];
+      ticking = false;
+    }
+    if (!ticking) {
+      window.requestAnimationFrame(_ref2);
+    }
+    ticking = true;
+  });
+  return {
+    observer,
+    subscribe(target, callback) {
+      var _callbacks$get;
+      observer.observe(target);
+      const cbs = (_callbacks$get = callbacks.get(target)) !== null && _callbacks$get !== void 0 ? _callbacks$get : [];
+      cbs.push(callback);
+      callbacks.set(target, cbs);
+    },
+    unsubscribe(target, callback) {
+      var _callbacks$get2;
+      const cbs = (_callbacks$get2 = callbacks.get(target)) !== null && _callbacks$get2 !== void 0 ? _callbacks$get2 : [];
+      if (cbs.length === 1) {
+        observer.unobserve(target);
+        callbacks.delete(target);
+        return;
+      }
+      const cbIndex = cbs.indexOf(callback);
+      if (cbIndex !== -1) cbs.splice(cbIndex, 1);
+      callbacks.set(target, cbs);
+    }
+  };
+}
+let _resizeObserver;
+const getResizeObserver = (polyfill) => !_resizeObserver ? _resizeObserver = createResizeObserver(polyfill) : _resizeObserver;
 function useSize(target) {
   const [size, setSize] = React.useState(new Point(0, 0));
   React.useLayoutEffect(() => {
@@ -16043,48 +15951,250 @@ function TickLabel(props) {
     /* @__PURE__ */ jsxRuntimeExports.jsx(Tick, { ...tickProps })
   ] });
 }
+function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) {
+  const events = reactExports.useMemo(() => {
+    userEvents = userEvents || {
+      onMouseDown: (ev, ctrls) => {
+        if (ev.button === 0 || ev.button === 1) {
+          ctrls.startPan(ev);
+          onCursorChange?.(null);
+        }
+      },
+      onWheel: (ev, ctrls) => {
+        const delta = -ev.deltaY / 200;
+        const zoomState = zoomController.state;
+        if (delta < 0 && zoomState.isMinZoom()) {
+          const pan = zoomState.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
+          zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
+        } else {
+          ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
+        }
+      }
+    };
+    return {
+      onMouseDown: (ev, ctrls) => {
+        userEvents?.onMouseDown?.(ev, ctrls);
+        userEvents?.withMouseDownOrClick?.(ev, ctrls);
+      },
+      onMouseMove: (ev, ctrls) => {
+        if (ctrls.panning && ctrls.lastEvent) ctrls.pan(ev.movementView.neg(), false, "view");
+        else {
+          onCursorChange?.(ev.cursor.floor());
+          userEvents?.onMouseMove?.(ev, ctrls);
+        }
+      },
+      onMouseUp: (ev, ctrls) => {
+        if (ctrls.panning && ev.button === ctrls.initialEvent?.button) {
+          ctrls.endPan();
+          onCursorChange?.(ev.cursor.floor());
+        } else userEvents?.onMouseUp?.(ev, ctrls);
+      },
+      onClick: (ev, ctrls) => {
+        if (ctrls.panning && ev.button === ctrls.initialEvent?.button) ctrls.endPan();
+        else userEvents?.onClick?.(ev, ctrls);
+        userEvents?.withMouseDownOrClick?.(ev, ctrls);
+      },
+      onMouseEnter: (ev, ctrls) => {
+        userEvents?.onMouseEnter?.(ev, ctrls);
+        onCursorChange?.(ev.cursor.floor());
+      },
+      onMouseLeave: (ev, ctrls) => {
+        if (ctrls.panning) ctrls.endPan();
+        userEvents?.onMouseLeave?.(ev, ctrls);
+        onCursorChange?.(null);
+      },
+      onWheel: userEvents?.onWheel
+    };
+  }, [userEvents]);
+  reactExports.useEffect(() => {
+    const area = zoomController.areaNode;
+    if (!area) return;
+    const zoomCtrls = new ZoomControls(zoomController, area);
+    const zoomState = zoomController.state;
+    const wheelEL = (ev) => {
+      if (events?.onWheel) {
+        ev.preventDefault();
+        events.onWheel(createSceneWheelEvent(ev, zoomState), zoomCtrls);
+      }
+    };
+    const clickTimers = {
+      0: null,
+      1: null,
+      2: null,
+      3: null,
+      4: null
+    };
+    const mouseEL = (ev) => {
+      ev.preventDefault();
+      const sceneMouseEvent = createSceneMouseEvent(ev, zoomState);
+      const viewPos = sceneMouseEvent.cursorView;
+      const clickTimer = clickTimers[ev.button];
+      if (ev.type === "mousemove") {
+        if (clickTimer) {
+          if (viewPos.subtract(clickTimer.startPos).norm() < 5) {
+            clickTimer.lastPos = viewPos;
+            return;
+          }
+          clearTimeout(clickTimer.timeout);
+          clickTimers[ev.button] = null;
+          events?.onMouseDown?.(clickTimer.mouseDownEvent, zoomCtrls);
+          const deltaView = clickTimer.lastPos.subtract(clickTimer.startPos);
+          const delta = deltaView.divide(zoomState.scale);
+          sceneMouseEvent.movementView = sceneMouseEvent.movementView.add(deltaView);
+          sceneMouseEvent.cursorView = sceneMouseEvent.cursorView.add(deltaView);
+          sceneMouseEvent.movement = sceneMouseEvent.movement.add(delta);
+          sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
+        }
+        events?.onMouseMove?.(sceneMouseEvent, zoomCtrls);
+      } else if (ev.type === "mousedown") {
+        if (clickTimer) {
+          clearTimeout(clickTimer.timeout);
+        }
+        clickTimers[ev.button] = {
+          startPos: viewPos,
+          lastPos: viewPos,
+          mouseDownEvent: sceneMouseEvent,
+          timeout: setTimeout(() => {
+            const c = clickTimers[ev.button];
+            if (c) {
+              clickTimers[ev.button] = null;
+              events?.onMouseDown?.(c.mouseDownEvent, zoomCtrls);
+              const deltaView = c.lastPos.subtract(c.startPos);
+              const delta = deltaView.divide(zoomState.scale);
+              sceneMouseEvent.movementView = deltaView;
+              sceneMouseEvent.cursorView = sceneMouseEvent.cursorView.add(deltaView);
+              sceneMouseEvent.movement = delta;
+              sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
+              events?.onMouseMove?.(sceneMouseEvent, zoomCtrls);
+            }
+          }, 750)
+        };
+      } else if (ev.type === "mouseup") {
+        if (clickTimer) {
+          clearTimeout(clickTimer.timeout);
+          clickTimers[ev.button] = null;
+          events?.onClick?.(sceneMouseEvent, zoomCtrls);
+        } else {
+          events?.onMouseUp?.(sceneMouseEvent, zoomCtrls);
+        }
+      } else if (ev.type === "mouseenter") events?.onMouseEnter?.(sceneMouseEvent, zoomCtrls);
+      else if (ev.type === "mouseleave") events?.onMouseLeave?.(sceneMouseEvent, zoomCtrls);
+    };
+    area.addEventListener("mousedown", mouseEL);
+    area.addEventListener("mouseup", mouseEL);
+    area.addEventListener("mousemove", mouseEL);
+    area.addEventListener("mouseenter", mouseEL);
+    area.addEventListener("mouseleave", mouseEL);
+    area.addEventListener("wheel", wheelEL, { passive: false });
+    return () => {
+      area.removeEventListener("mousedown", mouseEL);
+      area.removeEventListener("mouseup", mouseEL);
+      area.removeEventListener("mousemove", mouseEL);
+      area.removeEventListener("mouseenter", mouseEL);
+      area.removeEventListener("mouseleave", mouseEL);
+      area.removeEventListener("wheel", wheelEL);
+    };
+  }, [zoomController, zoomController.areaNode, events]);
+}
+class ZoomControls {
+  constructor(controller, area, onCursorChange) {
+    this.controller = controller;
+    this.area = area;
+    this.onCursorChange = onCursorChange;
+    this.panning = false;
+    this.initialEvent = void 0;
+    this.lastEvent = void 0;
+  }
+  startPan(ev) {
+    this.area?.requestPointerLock();
+    this.onCursorChange?.(null);
+    this.panning = true;
+    this.lastEvent = ev;
+    this.initialEvent = ev;
+  }
+  endPan() {
+    document.exitPointerLock();
+    this.panning = false;
+    this.lastEvent = void 0;
+    this.initialEvent = void 0;
+  }
+  pan(translate, animate = false, coord = "view") {
+    if (translate.isZero()) return;
+    this.controller.panBy(translate, coord, animate ? { duration: 200, cancelable: false } : void 0);
+  }
+  zoom(factor, center, animate = false) {
+    this.controller.zoomBy(factor, center, "view", animate ? { duration: 200, cancelable: false } : void 0);
+  }
+}
+function createBaseMouseEvent(ev) {
+  return {
+    altKey: ev.altKey,
+    ctrlKey: ev.ctrlKey,
+    shiftKey: ev.shiftKey,
+    metaKey: ev.metaKey,
+    button: ev.button,
+    buttons: ev.buttons
+  };
+}
+function createSceneMouseEvent(ev, zoomAreaState) {
+  const viewCursor = zoomAreaState.client2view(new Point(ev.y, ev.x));
+  const sceneEv = {
+    ...createBaseMouseEvent(ev),
+    cursor: zoomAreaState.view2scene(viewCursor),
+    cursorView: viewCursor,
+    movement: new Point(ev.movementY, ev.movementX).divide(zoomAreaState.scale),
+    movementView: new Point(ev.movementY, ev.movementX)
+  };
+  return sceneEv;
+}
+function createSceneWheelEvent(ev, zoomAreaState) {
+  let { deltaX, deltaY } = ev;
+  switch (ev.deltaMode) {
+    case WheelEvent.DOM_DELTA_PIXEL:
+      break;
+    case WheelEvent.DOM_DELTA_LINE:
+      deltaX *= 16;
+      deltaY *= 16;
+      break;
+    case WheelEvent.DOM_DELTA_PAGE:
+      deltaX *= 800;
+      deltaY *= 800;
+      break;
+  }
+  const viewCursor = zoomAreaState.client2view(ev.y, ev.x);
+  return {
+    ...createBaseMouseEvent(ev),
+    cursor: zoomAreaState.view2scene(viewCursor),
+    viewCursor,
+    deltaX,
+    deltaY
+  };
+}
 const _defaults = {
   image: ""
 };
 const store = createNeoscopeStore(_defaults, (set) => ({}));
+const cursorStore = create((set) => ({
+  cursorPos: null,
+  setCursorPos: (pos) => set({ cursorPos: pos })
+}));
 const ImageViewer = () => {
   const { image } = store();
   const { height, width, data } = parseImageString(image);
   const domain = new Rect(new Point(height, width));
-  const ref = reactExports.useRef(null);
-  const zoomTransform = useZoomTransform(ref, domain, 50);
-  const cursorPos = useSceneMouseEventListener(zoomTransform);
-  const panHorizontally = (delta) => {
-    zoomTransform.dispatch({
-      pan: new Point(delta, 0)
-    });
-  };
-  const panVertically = (delta) => {
-    zoomTransform.dispatch({
-      pan: new Point(0, delta)
-    });
-  };
-  const setCenterHorizontally = (center) => {
-    zoomTransform.dispatch({
-      center: new Point(zoomTransform.center.y, center)
-    });
-  };
-  const setCenterVertically = (center) => {
-    zoomTransform.dispatch({
-      center: new Point(center, zoomTransform.center.x)
-    });
-  };
+  const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
+  useSceneMouseEventListener(zoomController, void 0, cursorStore.getState().setCursorPos);
   const rulerProps = {
     thickness: 15,
-    scale: () => zoomTransform.scale
+    scale: () => zoomState.scale
   };
   const widgetStyle = {
     display: "grid",
     gridTemplateColumns: `${rulerProps.thickness}px auto`,
     gridTemplateRows: `${rulerProps.thickness}px auto`
   };
-  const t = zoomTransform;
-  const sceneSize = t.sceneDomain.size.multiply(zoomTransform.scale);
+  const t = zoomState;
+  const sceneSize = t.sceneDomain.size.multiply(zoomState.scale);
   const viewTopLeft = t.zoomArea.viewSize.half().subtract(t.center.subtract(t.sceneDomain.topLeft).multiply(t.scale));
   const sceneTransform = {
     width: `${sceneSize.x}px`,
@@ -16098,10 +16208,12 @@ const ImageViewer = () => {
     {
       orientation: "horizontal",
       center: () => t.center.x,
-      cursorPos: () => cursorPos?.x || null,
-      onPanCenter: panHorizontally,
-      onSetCenter: setCenterHorizontally,
-      axisInterval: { start: zoomTransform.sceneDomain.left, end: zoomTransform.sceneDomain.right },
+      cursorPos: () => {
+        return cursorStore((state) => state.cursorPos?.x || null);
+      },
+      onPanCenter: zoomController.panHorizontallyBy,
+      onSetCenter: zoomController.setCenterX,
+      axisInterval: { start: zoomState.sceneDomain.left, end: zoomState.sceneDomain.right },
       style: { gridRow: 1, gridColumn: 2 },
       ...rulerProps
     }
@@ -16111,15 +16223,17 @@ const ImageViewer = () => {
     {
       orientation: "vertical",
       center: () => t.center.y,
-      cursorPos: () => cursorPos?.y || null,
-      onPanCenter: panVertically,
-      onSetCenter: setCenterVertically,
-      axisInterval: { start: zoomTransform.sceneDomain.top, end: zoomTransform.sceneDomain.bottom },
+      cursorPos: () => {
+        return cursorStore((state) => state.cursorPos?.y || null);
+      },
+      onPanCenter: zoomController.panVerticallyBy,
+      onSetCenter: zoomController.setCenterY,
+      axisInterval: { start: zoomState.sceneDomain.top, end: zoomState.sceneDomain.bottom },
       style: { gridRow: 2, gridColumn: 1 },
       ...rulerProps
     }
   );
-  const pixelSize = zoomTransform.scale * domain.width / zoomTransform.sceneDomain.width;
+  const pixelSize = zoomState.scale * domain.width / zoomState.sceneDomain.width;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ImageViewerWidget", style: widgetStyle, children: [
     topRuler,
     leftRuler,

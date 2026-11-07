@@ -1,48 +1,59 @@
-import { RefObject, useLayoutEffect, useReducer, useRef } from "react";
+import { useCallback, useLayoutEffect, useReducer, useRef } from "react";
 import { Animation, Animator, EasingFunction } from "./animator";
 import { ORIGIN, Point, Rect, Transform, isSameTransform } from "./geometry";
-import { BoundingClientRectObserver } from "@html-ng/bounding-client-rect-observer";
 
 export function useZoomTransform(
-  areaRef: RefObject<HTMLElement | null>,
   sceneDomain: Rect,
   maxScale: number,
   sceneOuterRect?: Rect,
-): [ZoomAreaInternalState, ZoomAreaController] {
+): [ZoomAreaInternalState, ZoomAreaController, (node: HTMLElement | null) => void] {
   // === INITIALIZE STATE AND CONTROLLER ===
   // Trigger to manually redraw the area
   const [, redraw] = useReducer((c) => c + 1, 0);
   // Internal controller and state (as ref to manually control when re-render should occur)
-  const controller = useRef(
-    () =>
-      new ZoomAreaController(
-        new ZoomAreaInternalState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
-        redraw,
-      ),
-  ).current();
+  const controllerRef = useRef<ZoomAreaController | null>(null);
+  if (controllerRef.current === null) {
+    // Initialize the controller only once
+    controllerRef.current = new ZoomAreaController(
+      new ZoomAreaInternalState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
+      redraw,
+    );
+  }
+  const controller = controllerRef.current;
 
-  // === SETUP OBSERVERS AND UPDATERS ===
-  // Update area properties
+  // === SETUP AREA  ===
   controller.setAreaProperties(sceneDomain, maxScale, sceneOuterRect);
+  const areaRefCallback = useCallback(
+    (node: HTMLElement | null) => {
+      if (controller.areaNode !== node) controller.setAreaNode(node);
+    },
+    [controller],
+  );
 
-  // Update view client rect
-  const area = areaRef.current;
+  // Setup ResizeObserver to update the clientRect of the zoom area when the area size changes
   useLayoutEffect(() => {
-    if (!area) return;
+    if (!controller.areaNode) return;
 
-    controller.setClientRect(Rect.fromDOMRect(area.getBoundingClientRect()));
+    const updateRect = () => controller.updateClientRect();
 
-    const observer = new BoundingClientRectObserver((entries) => {
-      entries.forEach((entry) => {
-        const { target, newBounds } = entry;
-        if (target === area && newBounds) controller.setClientRect(Rect.fromDOMRect(newBounds), true);
-      });
-    });
-    observer.observe(area);
-    return () => observer.disconnect();
-  }, [area]);
+    // 1. Observe les changements de taille de l'élément lui-même
+    const resizeObserver = new ResizeObserver(updateRect);
+    resizeObserver.observe(controller.areaNode);
 
-  return [controller.state, controller];
+    // 2. Observe le défilement (scroll) global
+    // Le paramètre { capture: true } permet de détecter le scroll même dans les conteneurs parents
+    window.addEventListener("scroll", updateRect, { capture: true, passive: true });
+    window.addEventListener("resize", updateRect);
+
+    // Nettoyage des écouteurs à la destruction du composant
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("scroll", updateRect, { capture: true });
+      window.removeEventListener("resize", updateRect);
+    };
+  }, [controller.areaNode, controller]);
+
+  return [controller.state, controller, areaRefCallback];
 }
 
 export type Coord = "view" | "scene" | "relative" | "client";
@@ -89,10 +100,11 @@ class ZoomAreaCalculator {
 
   public setClientRect(clientRect: Rect): boolean {
     if (clientRect.equals(this._clientRect)) return false;
-    if (clientRect.size != this._clientRect.size) this.invalidateScaleCaches();
+    const sameSize = clientRect.size.equals(this._clientRect.size);
+    if (!sameSize) this.invalidateScaleCaches();
 
     this._clientRect = clientRect;
-    return true;
+    return !sameSize;
   }
 
   public get sceneDomain(): Rect {
@@ -440,8 +452,8 @@ export class ZoomAreaInternalState {
     this.setTransform(t);
   }
 
-  setTransform(t: Transform): boolean {
-    if (isSameTransform(t, this._t)) return false;
+  setTransform(t: Transform, assume_different: boolean = false): boolean {
+    if (!assume_different && isSameTransform(t, this._t)) return false;
     this._t = t;
     this._scale = this.zoomArea.zoom2scale(t.zoom);
     return true;
@@ -451,12 +463,28 @@ export class ZoomAreaInternalState {
     return this._scale;
   }
 
+  get zoom(): number {
+    return this._t.zoom;
+  }
+
   get center(): Point {
     return this.zoomArea.centerInSceneCoord(this._t);
   }
 
+  get relativeCenter(): Point {
+    return this.zoomArea.centerInRelativeCoord(this._t);
+  }
+
   get sceneDomain(): Rect {
     return this.zoomArea.sceneDomain;
+  }
+
+  isMinZoom(): boolean {
+    return this._t.zoom <= this.zoomArea.minZoom;
+  }
+
+  isMaxZoom(): boolean {
+    return this._t.zoom >= this.zoomArea.maxZoom;
   }
 
   get sceneRect(): Rect {
@@ -506,6 +534,13 @@ export class ZoomAreaInternalState {
     return p.subtract(this.zoomArea.clientRect.center).divide(this.scale).add(this.center);
   }
 
+  client2view(py: number, px: number): Point;
+  client2view(p: Point): Point;
+  client2view(py: Point | number, px?: number): Point {
+    const p = typeof py === "number" ? new Point(py, px!) : py;
+    return p.subtract(this.zoomArea.clientRect.topLeft);
+  }
+
   scene2client(p: Point): Point {
     return p.subtract(this.center).multiply(this.scale).add(this.zoomArea.clientRect.center);
   }
@@ -528,6 +563,8 @@ interface ZoomAnimOpts {
  * It also supports animated transitions for zooming and panning.
  */
 export class ZoomAreaController {
+  protected _areaNode: HTMLElement | null = null; // Reference to the HTML element representing the zoom area
+
   constructor(
     public state: ZoomAreaInternalState,
     protected redrawZoomArea?: () => void,
@@ -537,6 +574,7 @@ export class ZoomAreaController {
     if (!assume_different && isSameTransform(t, this.state.transform)) return false;
     this.state.transform = t;
     if (redraw_on_change) this.redrawZoomArea?.();
+
     return true;
   }
 
@@ -549,6 +587,7 @@ export class ZoomAreaController {
 
     this.state.transform = newT;
     if (redraw_on_change) this.redrawZoomArea?.();
+
     return true;
   }
   setAreaProperties(
@@ -568,22 +607,26 @@ export class ZoomAreaController {
     return this._constrainCurrentTransform(redraw_on_change);
   }
 
-  setClientRect(clientRect: Rect, redraw_on_change: boolean = true): boolean {
-    if (!this.state.zoomArea.setClientRect(clientRect)) return false;
-    return this._constrainCurrentTransform(redraw_on_change);
+  get areaNode(): HTMLElement | null {
+    return this._areaNode;
   }
 
-  // === Animations ===
-  protected flushAnim() {
-    if (this.state.animator.running) {
-      this.state.animator.stop();
-      if (this.state.animTarget) {
-        this._setTransform(this.state.animTarget);
-        this.state.animTarget = undefined;
-      }
+  setAreaNode(node: HTMLElement | null, redraw_on_change: boolean = true): void {
+    this._areaNode = node;
+    this.updateClientRect(redraw_on_change);
+  }
+  updateClientRect(redraw_on_change: boolean = true): void {
+    if (!this._areaNode) return;
+    return this.setClientRect(Rect.fromDOMRect(this._areaNode.getBoundingClientRect()), redraw_on_change);
+  }
+  setClientRect(clientRect: Rect, redraw_on_change: boolean = true): void {
+    if (this.state.zoomArea.setClientRect(clientRect)) {
+      this.state.setTransform(this.state.transform, true);
+      if (redraw_on_change) this.redrawZoomArea?.();
     }
   }
 
+  // === Animations ===
   protected _animatorRun(
     lastTr: Transform,
     nextTr: Transform,
@@ -654,8 +697,10 @@ export class ZoomAreaController {
     if (!panAnim) panAnim = Animation.simple(c0, c1);
 
     // RUN ANIMATION
-    const animTick = (t: { zoom: number; center: Point }) =>
+    const animTick = (t: { zoom: number; center: Point }) => {
       this._setTransform({ ...t, coord: "relative" }, true, true);
+    };
+
     this._animatorRun(lastTr, nextTr, zoomAnim, panAnim, opts, animTick);
   }
 
@@ -666,7 +711,7 @@ export class ZoomAreaController {
    * @param zoomCenter The center point of the zoom. /!\ Must be in scene coordinates!
    * @param opts Animation options.
    */
-  protected _animateZoom(lastTr: Transform, nextTr: Transform, zoomCenter: Point, opts?: ZoomAnimOpts) {
+  protected _animateZoom(lastTr: Transform, nextTr: Transform, zoomCenter?: Point, opts?: ZoomAnimOpts) {
     const area = this.state.zoomArea;
 
     let zoomAnim = opts?.zoomAnim;
@@ -682,8 +727,13 @@ export class ZoomAreaController {
   // === Actions ===
   _actionInit(): [Transform, Transform, ZoomAreaCalculator] {
     const currentTr = this.state.transform;
-    this.flushAnim();
-    return [currentTr, this.state.transform, this.state.zoomArea];
+    let tr = currentTr;
+    // Flush ongoing animations
+    if (this.state.animator.running) {
+      if (this.state.animTarget) tr = this.state.animTarget;
+      this.state.animator.stop();
+    }
+    return [currentTr, tr, this.state.zoomArea];
   }
 
   setTransform(t: Transform, anim?: ZoomAnimOpts) {
@@ -722,8 +772,8 @@ export class ZoomAreaController {
   }
 
   setZoom(zoom: number, anim?: ZoomAnimOpts) {
-    const [prevTr] = this._actionInit();
-    const nextTr = this.state.zoomArea.constraintTransform({
+    const [prevTr, _, area] = this._actionInit();
+    const nextTr = area.constraintTransform({
       zoom: zoom,
       center: this.state.center,
     });
@@ -733,13 +783,8 @@ export class ZoomAreaController {
   }
 
   zoomBy(dZoom: number, zoomCenter?: Point, coord?: Coord, anim?: ZoomAnimOpts) {
-    const [prevTr, tr] = this._actionInit();
-
-    if (zoomCenter == undefined) {
-      zoomCenter = new Point(0.5, 0.5);
-      coord = "view";
-    }
-    const nextTr = this.state.zoomArea.applyZoom(tr, dZoom, zoomCenter, coord);
+    const [prevTr, tr, area] = this._actionInit();
+    const nextTr = area.applyZoom(tr, dZoom, zoomCenter, coord);
 
     if (anim) this._animateZoom(prevTr, nextTr, zoomCenter, anim);
     else this._setTransform(nextTr);
@@ -747,19 +792,11 @@ export class ZoomAreaController {
 
   panBy(dCenter: Point, coord: Coord = "view", anim?: ZoomAnimOpts) {
     const [prevTr, tr, area] = this._actionInit();
-
     // Convert dCenter to scene coordinates
     if (coord === "relative") dCenter = dCenter.multiply(area.sceneDomain.size);
-    else if (coord === "view") dCenter = dCenter.multiply(this.state.scale);
+    else if (coord === "view") dCenter = dCenter.divide(this.state.scale);
     const center = area.centerInSceneCoord(tr);
-
-    const nextTr = area.constraintCenter(
-      {
-        zoom: tr.zoom,
-        center: center.add(dCenter),
-      },
-      center,
-    );
+    const nextTr = area.constraintCenter({ zoom: tr.zoom, center: center.add(dCenter), coord: "scene" }, center);
     if (anim) this._animateZoomPan(prevTr, nextTr, anim);
     else this._setTransform(nextTr);
   }

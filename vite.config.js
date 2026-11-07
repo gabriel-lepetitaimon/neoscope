@@ -2,6 +2,7 @@
 import { defineConfig } from "vite";
 import anywidget from "@anywidget/vite";
 import react from "@vitejs/plugin-react";
+import path from "path";
 
 export default defineConfig(() => {
   // Read the component name passed after Vite's `--` argument separator.
@@ -24,6 +25,11 @@ export default defineConfig(() => {
   }
 
   return {
+    resolve: {
+      alias: {
+        __FRAMEWORK_CSS__: path.resolve(__dirname, `./js/css/${target}.min.css`),
+      },
+    },
     build: {
       minify: isProd ? "oxc" : false,
       sourcemap: !isProd,
@@ -38,7 +44,7 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           entryFileNames: `${inputFile}-${target}.js`,
-          assetFileNames: `${inputFile}.[ext]`,
+          assetFileNames: `${inputFile}-${target}.[ext]`,
         },
       },
       ...(isProd && {
@@ -54,7 +60,7 @@ export default defineConfig(() => {
         },
       }),
     },
-    plugins: [anywidget(), react()],
+    plugins: [...(target === "anywidget" ? [anywidget()] : []), react()],
     define: {
       "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV),
       __FRAMEWORK__: JSON.stringify(target),

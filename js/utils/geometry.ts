@@ -9,20 +9,36 @@ export class Point {
 
   static ORIGIN = Object.freeze(new Point(0, 0));
 
-  add(f: number | Point): Point {
-    return f instanceof Point ? new Point(this.y + f.y, this.x + f.x) : new Point(this.y + f, this.x + f);
+  add(fy: number, fx: number): Point;
+  add(f: number | Point): Point;
+  add(fy: number | Point, fx?: number): Point {
+    if (fy instanceof Point) return new Point(this.y + fy.y, this.x + fy.x);
+    if (fx !== undefined) return new Point(this.y + fy, this.x + fx);
+    return new Point(this.y + fy, this.x + fy);
   }
 
-  subtract(f: number | Point): Point {
-    return f instanceof Point ? new Point(this.y - f.y, this.x - f.x) : new Point(this.y - f, this.x - f);
+  subtract(fy: number, fx: number): Point;
+  subtract(f: number | Point): Point;
+  subtract(fy: number | Point, fx?: number): Point {
+    if (fy instanceof Point) return new Point(this.y - fy.y, this.x - fy.x);
+    if (fx !== undefined) return new Point(this.y - fy, this.x - fx);
+    return new Point(this.y - fy, this.x - fy);
   }
 
-  divide(f: number | Point): Point {
-    return f instanceof Point ? new Point(this.y / f.y, this.x / f.x) : new Point(this.y / f, this.x / f);
+  divide(fy: number, fx: number): Point;
+  divide(f: number | Point): Point;
+  divide(fy: number | Point, fx?: number): Point {
+    if (fy instanceof Point) return new Point(this.y / fy.y, this.x / fy.x);
+    if (fx !== undefined) return new Point(this.y / fy, this.x / fx);
+    return new Point(this.y / fy, this.x / fy);
   }
 
-  multiply(f: number | Point): Point {
-    return f instanceof Point ? new Point(this.y * f.y, this.x * f.x) : new Point(this.y * f, this.x * f);
+  multiply(fy: number, fx: number): Point;
+  multiply(f: number | Point): Point;
+  multiply(fy: number | Point, fx?: number): Point {
+    if (fy instanceof Point) return new Point(this.y * fy.y, this.x * fy.x);
+    if (fx !== undefined) return new Point(this.y * fy, this.x * fx);
+    return new Point(this.y * fy, this.x * fy);
   }
 
   half(): Point {

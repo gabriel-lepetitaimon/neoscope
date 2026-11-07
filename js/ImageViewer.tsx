@@ -1,11 +1,12 @@
 import * as React from "react";
-import { createNeoscopeRenderer, createNeoscopeStore } from "./framework/neoscope";
-import { SceneMouseEvent, Transform, useSceneMouseEventListener, useZoomTransform } from "./utils/zoom-pan-handler";
+import { createNeoscopeRenderer, createNeoscopeStore } from "./framework-glue/neoscope";
+import { useZoomTransform } from "./utils/zoom-area-controller";
 import { Point, Rect } from "./utils/geometry";
 import { parseImageString } from "./utils/image";
 import RulerAxis from "./components/RulerAxis";
 import "./css/ImageViewerWidget.css";
-import "./css/neoscope.min.css";
+import { useSceneMouseEventListener } from "./utils/zoom-area-events";
+import { create } from "zustand";
 
 const _defaults = {
   image: "",
@@ -16,6 +17,15 @@ interface ImageViewerActions {}
 
 const store = createNeoscopeStore<ImageViewerModel, ImageViewerActions>(_defaults, (set) => ({}));
 
+type CursorStore = {
+  cursorPos: Point | null;
+  setCursorPos: (pos: Point | null) => void;
+};
+const cursorStore = create<CursorStore>((set) => ({
+  cursorPos: null,
+  setCursorPos: (pos) => set({ cursorPos: pos }),
+}));
+
 const ImageViewer = () => {
   const { image } = store();
   const { height, width, data } = parseImageString(image);
@@ -23,36 +33,15 @@ const ImageViewer = () => {
   const showLeftRuler = true;
   const showTopRuler = true;
 
-  const ref = React.useRef<HTMLDivElement>(null);
-  const zoomTransform = useZoomTransform(ref, domain, 50);
-  const cursorPos = useSceneMouseEventListener(zoomTransform);
+  const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
+  useSceneMouseEventListener(zoomController, undefined, cursorStore.getState().setCursorPos);
 
-  const panHorizontally = (delta: number): void => {
-    zoomTransform.dispatch({
-      pan: new Point(delta, 0),
-    });
-  };
-  const panVertically = (delta: number): void => {
-    zoomTransform.dispatch({
-      pan: new Point(0, delta),
-    });
-  };
-
-  const setCenterHorizontally = (center: number): void => {
-    zoomTransform.dispatch({
-      center: new Point(zoomTransform.center.y, center),
-    });
-  };
-  const setCenterVertically = (center: number): void => {
-    zoomTransform.dispatch({
-      center: new Point(center, zoomTransform.center.x),
-    });
-  };
+  //console.log("ImageViewer render", { zoomState });
 
   // --- STYLE ---
   const rulerProps = {
     thickness: 15,
-    scale: () => zoomTransform.scale,
+    scale: () => zoomState.scale,
   };
 
   const widgetStyle: React.CSSProperties = {
@@ -61,8 +50,8 @@ const ImageViewer = () => {
     gridTemplateRows: showTopRuler ? `${rulerProps.thickness}px auto` : "auto",
   };
 
-  const t = zoomTransform;
-  const sceneSize = t.sceneDomain.size.multiply(zoomTransform.scale);
+  const t = zoomState;
+  const sceneSize = t.sceneDomain.size.multiply(zoomState.scale);
   const viewTopLeft = t.zoomArea.viewSize.half().subtract(t.center.subtract(t.sceneDomain.topLeft).multiply(t.scale));
 
   const sceneTransform: React.CSSProperties = {
@@ -77,10 +66,12 @@ const ImageViewer = () => {
     <RulerAxis
       orientation={"horizontal"}
       center={() => t.center.x}
-      cursorPos={() => cursorPos?.x || null}
-      onPanCenter={panHorizontally}
-      onSetCenter={setCenterHorizontally}
-      axisInterval={{ start: zoomTransform.sceneDomain.left, end: zoomTransform.sceneDomain.right }}
+      cursorPos={() => {
+        return cursorStore((state) => state.cursorPos?.x || null);
+      }}
+      onPanCenter={zoomController.panHorizontallyBy}
+      onSetCenter={zoomController.setCenterX}
+      axisInterval={{ start: zoomState.sceneDomain.left, end: zoomState.sceneDomain.right }}
       style={{ gridRow: 1, gridColumn: showLeftRuler ? 2 : 1 }}
       {...rulerProps}
     />
@@ -90,15 +81,17 @@ const ImageViewer = () => {
     <RulerAxis
       orientation={"vertical"}
       center={() => t.center.y}
-      cursorPos={() => cursorPos?.y || null}
-      onPanCenter={panVertically}
-      onSetCenter={setCenterVertically}
-      axisInterval={{ start: zoomTransform.sceneDomain.top, end: zoomTransform.sceneDomain.bottom }}
+      cursorPos={() => {
+        return cursorStore((state) => state.cursorPos?.y || null);
+      }}
+      onPanCenter={zoomController.panVerticallyBy}
+      onSetCenter={zoomController.setCenterY}
+      axisInterval={{ start: zoomState.sceneDomain.top, end: zoomState.sceneDomain.bottom }}
       style={{ gridRow: showTopRuler ? 2 : 1, gridColumn: 1 }}
       {...rulerProps}
     />
   ) : null;
-  const pixelSize = (zoomTransform.scale * domain.width) / zoomTransform.sceneDomain.width;
+  const pixelSize = (zoomState.scale * domain.width) / zoomState.sceneDomain.width;
 
   // --- RENDER ---
   return (

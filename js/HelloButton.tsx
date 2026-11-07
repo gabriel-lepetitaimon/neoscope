@@ -1,6 +1,6 @@
 import * as React from "react";
 import "./widget.css";
-import { createNeoscopeRenderer, createNeoscopeStore } from "./framework/neoscope";
+import { createNeoscopeRenderer, createNeoscopeStore } from "./framework-glue/neoscope";
 
 const _defaults = {
   value: 0,

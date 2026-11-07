@@ -14234,6 +14234,71 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
+function createAnywidgetRenderer(render, store2) {
+  const renderHook = ({ model, el }) => {
+    const root = clientExports.createRoot(el);
+    el.classList.add("neoscope-widget");
+    function onPythonModelChange() {
+      const data = model.get("_frontend_data");
+      if (!data) return;
+      store2.setState(model.get("_frontend_data"));
+      root.render(render());
+    }
+    const modelKeys = Object.keys(store2.initialState());
+    const unsubscribeStore = store2.subscribe((state) => {
+      const modelState = modelKeys.reduce((acc, key) => {
+        acc[key] = state[key];
+        return acc;
+      }, {});
+      if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
+      model.set("_frontend_data", modelState);
+      model.save_changes();
+    });
+    model.on("change:_frontend_data", onPythonModelChange);
+    onPythonModelChange();
+    return () => {
+      unsubscribeStore();
+      model.off("change:_frontend_data", onPythonModelChange);
+      root.unmount();
+    };
+  };
+  return { render: renderHook };
+}
+const reactRoots = /* @__PURE__ */ new WeakMap();
+function createStreamlitRenderer(render, store2) {
+  const renderHook = (args) => {
+    const { data, parentElement, setStateValue } = args;
+    const rootElement = parentElement.querySelector(".react-root");
+    if (!rootElement) {
+      throw new Error("Unexpected: React root element not found");
+    }
+    let reactRoot = reactRoots.get(parentElement);
+    if (!reactRoot) {
+      reactRoot = clientExports.createRoot(rootElement);
+      reactRoots.set(parentElement, reactRoot);
+    }
+    const modelKeys = Object.keys(store2.initialState());
+    const unsubscribe = store2.subscribe((state) => {
+      modelKeys.forEach((key) => {
+        if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) {
+          console.log("Sending update:", key, "\n	old:", data[key], "\n	new:", state[key]);
+          setStateValue(key, state[key]);
+        }
+      });
+    });
+    store2.setState(data);
+    reactRoot.render(render());
+    return () => {
+      unsubscribe();
+      const reactRoot2 = reactRoots.get(parentElement);
+      if (reactRoot2) {
+        reactRoot2.unmount();
+        reactRoots.delete(parentElement);
+      }
+    };
+  };
+  return renderHook;
+}
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -14284,36 +14349,10 @@ function createNeoscopeStore(initialState, actions) {
   return store2;
 }
 function createNeoscopeRenderer(render, store2) {
-  {
-    const renderHook = ({ model, el }) => {
-      const root = clientExports.createRoot(el);
-      el.classList.add("neoscope-widget");
-      function onPythonModelChange() {
-        const data = model.get("_frontend_data");
-        if (!data) return;
-        store2.setState(model.get("_frontend_data"));
-        root.render(render());
-      }
-      const modelKeys = Object.keys(store2.initialState());
-      const unsubscribeStore = store2.subscribe((state) => {
-        const modelState = modelKeys.reduce((acc, key) => {
-          acc[key] = state[key];
-          return acc;
-        }, {});
-        if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
-        model.set("_frontend_data", modelState);
-        model.save_changes();
-      });
-      model.on("change:_frontend_data", onPythonModelChange);
-      onPythonModelChange();
-      return () => {
-        unsubscribeStore();
-        model.off("change:_frontend_data", onPythonModelChange);
-        root.unmount();
-      };
-    };
-    return { render: renderHook };
-  }
+  return {
+    anywidget: () => createAnywidgetRenderer(render, store2),
+    streamlit: () => createStreamlitRenderer(render, store2)
+  }["anywidget"]();
 }
 const _defaults = {
   value: 0
