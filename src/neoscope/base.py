@@ -305,7 +305,8 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
     def __init__(self, model: MODEL):
         super().__init__()
         self._model = weakref.ref(model)
-        setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json())
+        self._version = 0
+        setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json() | {"__version__": self._version})
         # Bind the model to the widget so that changes in the model are reflected in the widget and vice versa.
         self.observe(self.on_frontend_change, names=[_FRONTEND_DATA_KEY])
         self.on_msg(self.on_msg_received)
@@ -317,7 +318,13 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         if model is None or model._silence_change_notifications:
             return
         if change["name"] == _FRONTEND_DATA_KEY:
-            for key, new_value in change["new"].items():
+            new_dict = change["new"]
+            incoming_version = new_dict.pop("__version__", self._version + 1)
+            if incoming_version < self._version:  # Skip older versions
+                return
+            self._version = incoming_version
+
+            for key, new_value in new_dict.items():
                 if new_value != change["old"].get(key):
                     model.on_frontend_change(key, new_value)
 
@@ -326,8 +333,9 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         model = self._model()
         if model is None or model._silence_change_notifications:
             return
-        #        with model._silence_change_notifications:
-        setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json())
+
+        self._version += 1
+        setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json() | {"__version__": self._version})
 
     def on_msg_received(self, widget, msg, buffers):
         """Handle messages received from the frontend."""

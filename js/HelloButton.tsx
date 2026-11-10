@@ -21,7 +21,6 @@ const [createHelloStore, useHelloStore] = createNeoscopeStore<Events>()(Model, {
 
 const HelloButton = () => {
   const { value, inc, click } = useHelloStore();
-  console.log("HelloButton render: value =", value);
   function handleClick() {
     inc();
     click(value + 1);

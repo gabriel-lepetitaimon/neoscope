@@ -14236,7 +14236,7 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
-function createAnywidgetRenderer(render, createStore2) {
+function createAnywidgetRenderer(render, createStore2, debounceMs = 50) {
   const renderHook = ({ model, el }) => {
     function sendEvent(eventName, args) {
       console.log("Sending event to Python:", { event: { type: eventName, args } });
@@ -14245,34 +14245,71 @@ function createAnywidgetRenderer(render, createStore2) {
     const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
     const root = clientExports.createRoot(el);
     el.classList.add("neoscope-widget-root");
+    let currentVersion = -1;
+    let isUpdatingFromFrontend = false;
+    let saveTimeout = null;
+    let hasChangeDuringTimeout = false;
     const modelKeys = Object.keys(store.initialState());
     const unsubscribeStore = store.subscribe((state) => {
-      const modelState = modelKeys.reduce((acc, key) => {
-        acc[key] = state[key];
-        return acc;
-      }, {});
-      if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
-      model.set("_frontend_data", modelState);
-      model.save_changes();
-      console.log("Updating Python model from React store:", modelState);
+      const currentData = model.get("_frontend_data") ?? {};
+      const modelState = {};
+      let hasChanged = false;
+      for (const key of modelKeys) {
+        const val = state[key];
+        modelState[key] = val;
+        if (JSON.stringify(val) !== JSON.stringify(currentData[key])) {
+          hasChanged = true;
+          break;
+        }
+      }
+      if (!hasChanged) return;
+      currentVersion += 1;
+      modelState.__version__ = currentVersion;
+      isUpdatingFromFrontend = true;
+      try {
+        model.set("_frontend_data", modelState);
+      } finally {
+        isUpdatingFromFrontend = false;
+      }
+      if (!saveTimeout) {
+        model.save_changes();
+        saveTimeout = setTimeout(() => {
+          if (hasChangeDuringTimeout) model.save_changes();
+          hasChangeDuringTimeout = false;
+          saveTimeout = null;
+        }, debounceMs);
+      } else {
+        hasChangeDuringTimeout = true;
+      }
     });
     function onPythonModelChange() {
+      if (isUpdatingFromFrontend) return;
       const data = model.get("_frontend_data");
       if (!data) return;
+      const incomingVersion = data.__version__ ?? 0;
+      if (incomingVersion <= currentVersion) return;
+      currentVersion = incomingVersion;
+      const currentState = store.getState();
       let new_state = {};
+      let hasChanges = false;
       for (const key of Object.keys(data)) {
         if (!(key in store.initialState())) continue;
         let key_data = data[key];
         if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
-        new_state[key] = key_data;
+        if (currentState[key] !== key_data) {
+          new_state[key] = key_data;
+          hasChanges = true;
+        }
       }
+      if (!hasChanges) return;
       console.log("Updating React store from Python model:", new_state);
       store.setState(new_state);
-      root.render(render(store));
     }
     model.on("change:_frontend_data", onPythonModelChange);
     onPythonModelChange();
+    root.render(render(store));
     return () => {
+      if (saveTimeout) clearTimeout(saveTimeout);
       unsubscribeStore();
       model.off("change:_frontend_data", onPythonModelChange);
       root.unmount();
