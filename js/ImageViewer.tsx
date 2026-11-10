@@ -13,11 +13,14 @@ import { createInstanciatedStore } from "./utils/zustand";
 /*************************************************************************
  *  === ImageViewer MODEL ===
  *************************************************************************/
-const _defaults = {
+const Model = {
   image: { width: 0, height: 0, data: "" } as ImageStr,
 };
+interface Events {
+  onClick: (y: number, x: number) => void;
+}
 
-const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore(_defaults, {
+const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore<Events>()(Model, {
   deserializers: {
     image: (bytes) => {
       console.log("deserializing image");
@@ -41,7 +44,7 @@ const useCursorStore = createInstanciatedStore<CursorStore>("ImageViewer.cursor"
 
 const ImageViewer = () => {
   // --- STATE ---
-  const { image } = useImageViewerStore();
+  const { image, onClick } = useImageViewerStore();
   const { height, width, data } = image;
   const domain = new Rect(new Point(height, width));
   const showLeftRuler = true;
@@ -49,7 +52,7 @@ const ImageViewer = () => {
 
   // --- ZOOM CONTROLLER ---
   const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
-  useSceneMouseEventListener(zoomController, undefined, useCursorStore.getState(0).setCursorPos);
+  useSceneMouseEventListener(zoomController, {}, useCursorStore.getState(0).setCursorPos);
 
   // --- SCENE TRANSFORM ---
   const t = zoomState;

@@ -1,10 +1,11 @@
 import { FrontendRenderer, FrontendRendererArgs } from "@streamlit/component-v2-lib";
-import { NeoscopeStore, NeoscopeStoreFactory } from "./zustand";
+import { NeoscopeStore, NeoscopeStoreFactory } from "./neoscopeStore";
 import { createRoot, Root } from "react-dom/client";
 
 interface StreamlitInstance<Model extends Record<string, any>> {
   root: Root;
   store: NeoscopeStore<Model, any>;
+  setTriggerValue: (key: string, value: any) => void;
   unsubscribe?: () => void;
 }
 
@@ -15,7 +16,7 @@ export function createStreamlitRenderer<Model extends Record<string, any>>(
   createStore: NeoscopeStoreFactory<Model, any>,
 ) {
   const renderHook: FrontendRenderer<Model, Model> = (args) => {
-    const { data, parentElement, setStateValue } = args;
+    const { data, parentElement, setStateValue, setTriggerValue } = args;
 
     const rootElement = parentElement.querySelector(".react-root");
     if (!rootElement) {
@@ -25,11 +26,17 @@ export function createStreamlitRenderer<Model extends Record<string, any>>(
     // Get or create the Streamlit instance for this parentElement
     let instance = instances.get(parentElement);
     if (!instance) {
-      instance = {
+      const newInstance: StreamlitInstance<Model> = {
         root: createRoot(rootElement),
-        store: createStore(), // The store is isolated to this widget instance
+        setTriggerValue,
+        store: createStore((eventName, eventArgs) => {
+          newInstance.setTriggerValue("event", { type: eventName, args: eventArgs });
+        }),
       };
+      instance = newInstance;
       instances.set(parentElement, instance);
+    } else {
+      instance.setTriggerValue = setTriggerValue;
     }
     if (instance.unsubscribe) instance.unsubscribe(); // Cleanup previous subscription if it exists
 

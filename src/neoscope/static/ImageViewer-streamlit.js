@@ -14238,7 +14238,11 @@ function requireClient() {
 var clientExports = requireClient();
 function createAnywidgetRenderer(render, createStore2) {
   const renderHook = ({ model, el }) => {
-    const store = createStore2();
+    function sendEvent(eventName, args) {
+      console.log("Sending event to Python:", eventName, args);
+      model.send({ event: eventName, args });
+    }
+    const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
     const root = clientExports.createRoot(el);
     el.classList.add("neoscope-widget-root");
     const modelKeys = Object.keys(store.initialState());
@@ -14277,19 +14281,24 @@ function createAnywidgetRenderer(render, createStore2) {
 const instances = /* @__PURE__ */ new WeakMap();
 function createStreamlitRenderer(render, createStore2) {
   const renderHook = (args) => {
-    const { data, parentElement, setStateValue } = args;
+    const { data, parentElement, setStateValue, setTriggerValue } = args;
     const rootElement = parentElement.querySelector(".react-root");
     if (!rootElement) {
       throw new Error("Unexpected: React root element not found");
     }
     let instance = instances.get(parentElement);
     if (!instance) {
-      instance = {
+      const newInstance = {
         root: clientExports.createRoot(rootElement),
-        store: createStore2()
-        // The store is isolated to this widget instance
+        setTriggerValue,
+        store: createStore2((eventName, eventArgs) => {
+          newInstance.setTriggerValue("event", { type: eventName, args: eventArgs });
+        })
       };
+      instance = newInstance;
       instances.set(parentElement, instance);
+    } else {
+      instance.setTriggerValue = setTriggerValue;
     }
     if (instance.unsubscribe) instance.unsubscribe();
     const { root, store } = instance;
@@ -14362,30 +14371,41 @@ const createImpl = (createState) => {
   return useBoundStore;
 };
 const create = ((createState) => createState ? createImpl(createState) : createImpl);
-const NeoscopeStoreContext = reactExports.createContext(null);
-function createNeoscopeStore(initialState, options) {
-  const createStoreInstance = () => {
-    const actions = options?.actions ?? (() => ({}));
-    const store = create((set) => ({
-      ...initialState,
-      ...actions(
-        set
-      )
-    }));
-    store.initialState = () => initialState;
-    store.serializers = options?.serializers ?? {};
-    store.deserializers = options?.deserializers ?? {};
-    return store;
+function createNeoscopeStore() {
+  return function(initialState, options) {
+    const createStoreInstance = (emitEvent) => {
+      const actions = options?.actions ?? (() => ({}));
+      const store = create((set) => ({
+        ...initialState,
+        ...actions(
+          set
+        )
+      }));
+      store.initialState = () => initialState;
+      store.serializers = options?.serializers ?? {};
+      store.deserializers = options?.deserializers ?? {};
+      store.emitEvent = emitEvent;
+      return store;
+    };
+    const useScopedStore = (selector) => {
+      const store = reactExports.useContext(NeoscopeStoreContext);
+      if (!store) throw new Error("This hook must be used within a NeoscopeStoreContext provider.");
+      const createStateProxy = (targetState) => new Proxy(targetState, {
+        get(target, prop, receiver) {
+          if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
+          if (typeof prop !== "string") return void 0;
+          return (...args) => {
+            if (store.emitEvent) store.emitEvent(prop, args);
+            else console.warn(`[Neoscope] The event "${prop}" was called but no emitter is attached.`);
+          };
+        }
+      });
+      return selector ? store((state) => selector(createStateProxy(state))) : createStateProxy(store());
+    };
+    return [createStoreInstance, useScopedStore];
   };
-  const useScopedStore = (selector) => {
-    const store = reactExports.useContext(NeoscopeStoreContext);
-    if (!store) {
-      throw new Error("Ce hook doit être utilisé à l'intérieur d'un widget Neoscope.");
-    }
-    return selector ? store(selector) : store();
-  };
-  return [createStoreInstance, useScopedStore];
 }
+const NeoscopeStoreContext = reactExports.createContext(null);
 const ResizeHeightHandle = ({ defaultHeight, onHeightChange, minHeight, maxHeight, className }) => {
   const [height, setHeight] = reactExports.useState(defaultHeight);
   const [isHighligted, setIsHighligted] = reactExports.useState(false);
@@ -16120,26 +16140,33 @@ function TickLabel(props) {
   ] });
 }
 function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) {
-  const events = reactExports.useMemo(() => {
-    userEvents = userEvents || {
-      onMouseDown: (ev, ctrls) => {
-        if (ev.button === 0 || ev.button === 1) {
-          ctrls.startPan(ev);
-          onCursorChange?.(null);
+  reactExports.useEffect(() => {
+    const area = zoomController.areaNode;
+    if (!area) return;
+    const zoomCtrls = new ZoomControls(zoomController, area);
+    const zoomState = zoomController.state;
+    userEvents = {
+      ...{
+        onMouseDown: (ev, ctrls) => {
+          if (ev.button === 0 || ev.button === 1) {
+            ctrls.startPan(ev);
+            onCursorChange?.(null);
+          }
+        },
+        onWheel: (ev, ctrls) => {
+          const delta = -ev.deltaY / 200;
+          const zoomState2 = zoomController.state;
+          if (delta < 0 && zoomState2.isMinZoom()) {
+            const pan = zoomState2.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
+            zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
+          } else {
+            ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
+          }
         }
       },
-      onWheel: (ev, ctrls) => {
-        const delta = -ev.deltaY / 200;
-        const zoomState = zoomController.state;
-        if (delta < 0 && zoomState.isMinZoom()) {
-          const pan = zoomState.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
-          zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
-        } else {
-          ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
-        }
-      }
+      ...userEvents
     };
-    return {
+    const events = {
       onMouseDown: (ev, ctrls) => {
         userEvents?.onMouseDown?.(ev, ctrls);
         userEvents?.withMouseDownOrClick?.(ev, ctrls);
@@ -16173,12 +16200,6 @@ function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) 
       },
       onWheel: userEvents?.onWheel
     };
-  }, [userEvents]);
-  reactExports.useEffect(() => {
-    const area = zoomController.areaNode;
-    if (!area) return;
-    const zoomCtrls = new ZoomControls(zoomController, area);
-    const zoomState = zoomController.state;
     const wheelEL = (ev) => {
       if (events?.onWheel) {
         ev.preventDefault();
@@ -16261,8 +16282,10 @@ function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) 
       area.removeEventListener("mouseenter", mouseEL);
       area.removeEventListener("mouseleave", mouseEL);
       area.removeEventListener("wheel", wheelEL);
+      zoomCtrls.endPan();
     };
-  }, [zoomController, zoomController.areaNode, events]);
+  }, [zoomController, zoomController.areaNode, userEvents, onCursorChange]);
+  console.log(zoomController, zoomController.areaNode, userEvents, onCursorChange);
 }
 class ZoomControls {
   constructor(controller, area, onCursorChange) {
@@ -16374,10 +16397,10 @@ function createInstanciatedStore(storeName, initializer) {
   useInstanciatedStore.getState = (instance) => getVanillaStore(instance).getState();
   return useInstanciatedStore;
 }
-const _defaults = {
+const Model = {
   image: { width: 0, height: 0, data: "" }
 };
-const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore(_defaults, {
+const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore()(Model, {
   deserializers: {
     image: (bytes) => {
       console.log("deserializing image");
@@ -16390,11 +16413,11 @@ const useCursorStore = createInstanciatedStore("ImageViewer.cursor", (set) => ({
   setCursorPos: (pos) => set({ cursorPos: pos })
 }));
 const ImageViewer = () => {
-  const { image } = useImageViewerStore();
+  const { image, onClick } = useImageViewerStore();
   const { height, width, data } = image;
   const domain = new Rect(new Point(height, width));
   const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
-  useSceneMouseEventListener(zoomController, void 0, useCursorStore.getState(0).setCursorPos);
+  useSceneMouseEventListener(zoomController, {}, useCursorStore.getState(0).setCursorPos);
   const t = zoomState;
   const sceneSize = t.sceneDomain.size.multiply(zoomState.scale);
   const viewTopLeft = t.zoomArea.viewSize.half().subtract(t.center.subtract(t.sceneDomain.topLeft).multiply(t.scale));

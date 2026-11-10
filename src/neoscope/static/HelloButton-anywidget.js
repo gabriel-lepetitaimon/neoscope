@@ -14238,7 +14238,11 @@ function requireClient() {
 var clientExports = requireClient();
 function createAnywidgetRenderer(render, createStore2) {
   const renderHook = ({ model, el }) => {
-    const store = createStore2();
+    function sendEvent(eventName, args) {
+      console.log("Sending event to Python:", eventName, args);
+      model.send({ event: eventName, args });
+    }
+    const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
     const root = clientExports.createRoot(el);
     el.classList.add("neoscope-widget-root");
     const modelKeys = Object.keys(store.initialState());
@@ -14277,19 +14281,24 @@ function createAnywidgetRenderer(render, createStore2) {
 const instances = /* @__PURE__ */ new WeakMap();
 function createStreamlitRenderer(render, createStore2) {
   const renderHook = (args) => {
-    const { data, parentElement, setStateValue } = args;
+    const { data, parentElement, setStateValue, setTriggerValue } = args;
     const rootElement = parentElement.querySelector(".react-root");
     if (!rootElement) {
       throw new Error("Unexpected: React root element not found");
     }
     let instance = instances.get(parentElement);
     if (!instance) {
-      instance = {
+      const newInstance = {
         root: clientExports.createRoot(rootElement),
-        store: createStore2()
-        // The store is isolated to this widget instance
+        setTriggerValue,
+        store: createStore2((eventName, eventArgs) => {
+          newInstance.setTriggerValue("event", { type: eventName, args: eventArgs });
+        })
       };
+      instance = newInstance;
       instances.set(parentElement, instance);
+    } else {
+      instance.setTriggerValue = setTriggerValue;
     }
     if (instance.unsubscribe) instance.unsubscribe();
     const { root, store } = instance;
@@ -14362,30 +14371,41 @@ const createImpl = (createState) => {
   return useBoundStore;
 };
 const create = ((createState) => createState ? createImpl(createState) : createImpl);
-const NeoscopeStoreContext = reactExports.createContext(null);
-function createNeoscopeStore(initialState, options) {
-  const createStoreInstance = () => {
-    const actions = options?.actions ?? (() => ({}));
-    const store = create((set) => ({
-      ...initialState,
-      ...actions(
-        set
-      )
-    }));
-    store.initialState = () => initialState;
-    store.serializers = options?.serializers ?? {};
-    store.deserializers = options?.deserializers ?? {};
-    return store;
+function createNeoscopeStore() {
+  return function(initialState, options) {
+    const createStoreInstance = (emitEvent) => {
+      const actions = options?.actions ?? (() => ({}));
+      const store = create((set) => ({
+        ...initialState,
+        ...actions(
+          set
+        )
+      }));
+      store.initialState = () => initialState;
+      store.serializers = options?.serializers ?? {};
+      store.deserializers = options?.deserializers ?? {};
+      store.emitEvent = emitEvent;
+      return store;
+    };
+    const useScopedStore = (selector) => {
+      const store = reactExports.useContext(NeoscopeStoreContext);
+      if (!store) throw new Error("This hook must be used within a NeoscopeStoreContext provider.");
+      const createStateProxy = (targetState) => new Proxy(targetState, {
+        get(target, prop, receiver) {
+          if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
+          if (typeof prop !== "string") return void 0;
+          return (...args) => {
+            if (store.emitEvent) store.emitEvent(prop, args);
+            else console.warn(`[Neoscope] The event "${prop}" was called but no emitter is attached.`);
+          };
+        }
+      });
+      return selector ? store((state) => selector(createStateProxy(state))) : createStateProxy(store());
+    };
+    return [createStoreInstance, useScopedStore];
   };
-  const useScopedStore = (selector) => {
-    const store = reactExports.useContext(NeoscopeStoreContext);
-    if (!store) {
-      throw new Error("Ce hook doit être utilisé à l'intérieur d'un widget Neoscope.");
-    }
-    return selector ? store(selector) : store();
-  };
-  return [createStoreInstance, useScopedStore];
 }
+const NeoscopeStoreContext = reactExports.createContext(null);
 const ResizeHeightHandle = ({ defaultHeight, onHeightChange, minHeight, maxHeight, className }) => {
   const [height, setHeight] = reactExports.useState(defaultHeight);
   const [isHighligted, setIsHighligted] = reactExports.useState(false);
@@ -14497,10 +14517,10 @@ function NeoscopeWidgetContainer({ store, opts, children }) {
     resizeHandle
   ] }) });
 }
-const _defaults = {
+const Model = {
   value: 0
 };
-const [createHelloStore, useHelloStore] = createNeoscopeStore(_defaults, {
+const [createHelloStore, useHelloStore] = createNeoscopeStore()(Model, {
   actions: (set) => ({
     inc() {
       set((state) => ({ value: state.value + 1 }));
@@ -14508,8 +14528,12 @@ const [createHelloStore, useHelloStore] = createNeoscopeStore(_defaults, {
   })
 });
 const HelloButton = () => {
-  const { value, inc } = useHelloStore();
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "neoscope", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: inc, children: [
+  const { value, inc, onClick } = useHelloStore();
+  function handleClick() {
+    inc();
+    onClick(value + 1);
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "neoscope", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: handleClick, children: [
     "count is ",
     value
   ] }) });

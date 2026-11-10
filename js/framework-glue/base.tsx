@@ -1,12 +1,12 @@
 import React from "react";
 import { createAnywidgetRenderer } from "./anywidget";
 import { createStreamlitRenderer } from "./streamlit";
-import { NeoscopeStore, NeoscopeStoreContext, NeoscopeStoreFactory } from "./zustand";
+import { NeoscopeStore, NeoscopeStoreContext, NeoscopeStoreFactory } from "./neoscopeStore";
 import "__FRAMEWORK_CSS__";
 import { ResizeHeightHandle } from "../components/resizable";
 
-export type { NeoscopeStore, NeoscopeStoreFactory } from "./zustand";
-export { createNeoscopeStore } from "./zustand";
+export type { NeoscopeStore, NeoscopeStoreFactory } from "./neoscopeStore";
+export { createNeoscopeStore } from "./neoscopeStore";
 
 export interface WidgetRendererOpts {
   maximizableHeight?: boolean;
@@ -15,10 +15,10 @@ export interface WidgetRendererOpts {
 
 export function createNeoscopeRenderer<Model extends Record<string, any>>(
   render: () => React.ReactNode,
-  createStore: NeoscopeStoreFactory<Model, any>,
+  createStore: NeoscopeStoreFactory<Model, any, any>,
   opts?: WidgetRendererOpts,
 ) {
-  const renderWithStore = (store: NeoscopeStore<Model, any>) => (
+  const renderWithStore = (store: NeoscopeStore<Model, any, any>) => (
     <NeoscopeWidgetContainer store={store} opts={opts}>
       {render()}
     </NeoscopeWidgetContainer>
@@ -35,7 +35,7 @@ export function createNeoscopeRenderer<Model extends Record<string, any>>(
     It can be used to apply common styles or layout properties to the widget.
    ============================================================== */
 interface NeoscopeWidgetContainerProps {
-  store: NeoscopeStore<any, any>;
+  store: NeoscopeStore<any, any, any>;
   opts?: WidgetRendererOpts;
   children: React.ReactNode; // Accepts any valid React child
 }

@@ -3,11 +3,15 @@ import { createNeoscopeRenderer, createNeoscopeStore } from "./framework-glue/ba
 
 import "./css/HelloButton.css";
 
-const _defaults = {
+const Model = {
   value: 0,
 };
 
-const [createHelloStore, useHelloStore] = createNeoscopeStore(_defaults, {
+interface Events {
+  onClick: (value: number) => void;
+}
+
+const [createHelloStore, useHelloStore] = createNeoscopeStore<Events>()(Model, {
   actions: (set) => ({
     inc() {
       set((state) => ({ value: state.value + 1 }));
@@ -16,10 +20,15 @@ const [createHelloStore, useHelloStore] = createNeoscopeStore(_defaults, {
 });
 
 const HelloButton = () => {
-  const { value, inc } = useHelloStore();
+  const { value, inc, onClick } = useHelloStore();
+  function handleClick() {
+    inc();
+    onClick(value + 1);
+  }
+
   return (
     <div className="neoscope">
-      <button onClick={inc}>count is {value}</button>
+      <button onClick={handleClick}>count is {value}</button>
     </div>
   );
 };

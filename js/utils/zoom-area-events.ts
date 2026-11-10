@@ -18,30 +18,39 @@ export function useSceneMouseEventListener(
   userEvents?: MouseEventsListener,
   onCursorChange?: (cursor: Point | null) => void,
 ) {
-  const events = useMemo((): MouseEventsListener => {
+  // === DISPATCH MOUSE EVENTS ===
+  useEffect(() => {
+    const area = zoomController.areaNode;
+    if (!area) return;
+    const zoomCtrls = new ZoomControls(zoomController, area);
+    const zoomState = zoomController.state;
+
     // === DEFAULT USER EVENTS ===
-    userEvents = userEvents || {
-      onMouseDown: (ev, ctrls) => {
-        if (ev.button === 0 || ev.button === 1) {
-          ctrls.startPan(ev);
-          onCursorChange?.(null);
-        }
+    userEvents = {
+      ...{
+        onMouseDown: (ev, ctrls) => {
+          if (ev.button === 0 || ev.button === 1) {
+            ctrls.startPan(ev);
+            onCursorChange?.(null);
+          }
+        },
+        onWheel: (ev, ctrls) => {
+          const delta = -ev.deltaY / 200;
+          const zoomState = zoomController.state;
+          if (delta < 0 && zoomState.isMinZoom()) {
+            // If the user is zooming out but already at min zoom, pan towards the center
+            const pan = zoomState.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
+            zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
+          } else {
+            ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
+          }
+        },
       },
-      onWheel: (ev, ctrls) => {
-        const delta = -ev.deltaY / 200;
-        const zoomState = zoomController.state;
-        if (delta < 0 && zoomState.isMinZoom()) {
-          // If the user is zooming out but already at min zoom, pan towards the center
-          const pan = zoomState.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
-          zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
-        } else {
-          ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
-        }
-      },
+      ...userEvents,
     };
 
     // === MOUSE EVENTS ===
-    return {
+    const events: MouseEventsListener = {
       onMouseDown: (ev, ctrls) => {
         userEvents?.onMouseDown?.(ev, ctrls);
         userEvents?.withMouseDownOrClick?.(ev, ctrls);
@@ -75,14 +84,6 @@ export function useSceneMouseEventListener(
       },
       onWheel: userEvents?.onWheel,
     };
-  }, [userEvents]);
-
-  // === DISPATCH MOUSE EVENTS ===
-  useEffect(() => {
-    const area = zoomController.areaNode;
-    if (!area) return;
-    const zoomCtrls = new ZoomControls(zoomController, area);
-    const zoomState = zoomController.state;
 
     // --- Wheel events ---
     const wheelEL = (ev: WheelEvent) => {
@@ -179,8 +180,10 @@ export function useSceneMouseEventListener(
       area.removeEventListener("mouseenter", mouseEL);
       area.removeEventListener("mouseleave", mouseEL);
       area.removeEventListener("wheel", wheelEL);
+      zoomCtrls.endPan();
     };
-  }, [zoomController, zoomController.areaNode, events]);
+  }, [zoomController, zoomController.areaNode, userEvents, onCursorChange]);
+  console.log(zoomController, zoomController.areaNode, userEvents, onCursorChange);
 }
 
 // =========================================================================

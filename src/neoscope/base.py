@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import functools
 import weakref
 from collections.abc import Callable, Sequence
-from typing import Any, Self
+from typing import Any, Generic, ParamSpec, Self
 
 import anywidget
 import numpy as np
@@ -17,8 +18,61 @@ from . import __asset_dir__
 _WIDGET_KEY = "__WIDGET__"
 
 
+################################################
+# == Event handler (typescript -> python) ===
+
+P = ParamSpec("P")
+
+
+class EventSubscription:
+    """Handle returned when subscribing to an event, allowing to unsubscribe."""
+
+    def __init__(self, unsubscribe_fn: Callable[[], None]):
+        self._unsubscribe_fn = unsubscribe_fn
+        self._active = True
+
+    def unsubscribe(self) -> None:
+        """Unsubscribe the callback from the event."""
+        if self._active:
+            self._unsubscribe_fn()
+            self._active = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.unsubscribe()
+
+
+class BoundEventSubscriber[**P]:
+    """Object bound to a model intance, allowing to subscribe to an event with a callback."""
+
+    def __init__(self, model: BaseWidgetModel, event_name: str, doc: str | None = None):
+        self._model = model
+        self._event_name = event_name
+        self.__doc__ = doc
+
+    def __call__(self, callback: Callable[P, Any]) -> EventSubscription:
+        """Register a callback for the event and return an EventSubscription to manage it."""
+        return self._model._add_event_listener(self._event_name, callback)
+
+
+class EventSubscribeDescriptor[**P]:
+    """Descriptor exposing the subscription method with its signature and docstring."""
+
+    def __init__(self, event_name: str, func: Callable[..., Any]):
+        self.event_name = event_name
+        self.func = func
+        functools.update_wrapper(self, func)
+
+    def __get__(self, instance: BaseWidgetModel | None, owner: type[BaseWidgetModel]) -> Any:
+        if instance is None:
+            return self
+        return BoundEventSubscriber[P](instance, self.event_name, self.__doc__)
+
+
 def event(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """A decorator to mark a method as an event handler for a specific event name."""
+    """Decorator for marking an internal method as the default handler for an event."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         func._callback_on_event = name
@@ -27,10 +81,33 @@ def event(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return decorator
 
 
+def event_subscribe(
+    name: str,
+) -> Callable[[Callable[P, Any]], EventSubscribeDescriptor[P]]:
+    """Decorator for exposing a typed and documented subscription method on the model.
+
+    The signature of the decorated method defines the expected type for the callback:
+    ```python
+    @event_subscribe("click")
+    def on_click(value: int) -> None:
+        '''Called when the button is clicked.'''
+        ...
+    ```
+    """
+
+    def decorator(func: Callable[P, Any]) -> EventSubscribeDescriptor[P]:
+        return EventSubscribeDescriptor[P](name, func)
+
+    return decorator
+
+
 class BaseModel(pydantic.BaseModel):
     """A base model that watches for changes in its fields and triggers a callback."""
 
-    model_config = pydantic.ConfigDict(validate_assignment=True)
+    model_config = pydantic.ConfigDict(
+        validate_assignment=True,
+        ignored_types=(EventSubscribeDescriptor,),
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -81,6 +158,7 @@ class BaseWidgetModel(BaseModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._anywidget: NeoscopeAnyWidget[Self] | None = None
+        self._event_listeners: dict[str, list[Callable[..., Any]]] = {}  # Instance specific event listeners
 
     @classmethod
     def widget_name(cls) -> str:
@@ -138,6 +216,32 @@ class BaseWidgetModel(BaseModel):
                 return False
         return True
 
+    ### EVENT HANDLING ###
+    def _add_event_listener(self, event_name: str, callback: Callable[..., Any]) -> EventSubscription:
+        """Add a dynamic event listener for the given event name and return an EventSubscription to manage it."""
+        listeners = self._event_listeners.setdefault(event_name, [])
+        listeners.append(callback)
+
+        def _remove() -> None:
+            if callback in listeners:
+                listeners.remove(callback)
+
+        return EventSubscription(_remove)
+
+    def _dispatch_event(self, event_name: str, args: Sequence[Any] = (), kwargs: dict[str, Any] | None = None) -> None:
+        """Call the internal event handler and all dynamic event listeners for the given event name."""
+        kwargs = kwargs or {}
+
+        # 1. Call the internal event handler (registered with @event) if it exists
+        internal_cb = type(self)._events_callback.get(event_name)
+        if internal_cb is not None:
+            internal_cb(self, *args, **kwargs)
+
+        # 2. Call all dynamic event listeners (registered with @event_subscribe)
+        # (Iterate over a copy, in case listeners are removed during iteration)
+        for listener in list(self._event_listeners.get(event_name, [])):
+            listener(*args, **kwargs)
+
     ### ANYWIDGET INTEGRATION ###
     def anywidget(self, single: bool = False) -> NeoscopeAnyWidget[Self]:
         """Create a NeoscopeAnyWidget instance from the model."""
@@ -165,19 +269,28 @@ class BaseWidgetModel(BaseModel):
     def streamlit(self, key=None) -> Any:
         """Render the model as a Streamlit component."""
         component = self.streamlit_component()
-        triggers = {
-            f"on_{event_name}_change": getattr(self, callback_name)
-            for event_name, callback_name in type(self)._events_callback.items()
-        }
-        # TODO: Only send in data that has changed since the last render to avoid unnecessary updates.
+
         model_data = self.dump_flat_json()
-        store = component(key=key, data=model_data, **triggers)
+        store = component(key=key, data=model_data, on_event_change=lambda: None)
+
+        # If an event was triggered, dispatch it to the appropriate handler
+        event_payload = store.get("event") if isinstance(store, dict) else getattr(store, "event", None)
+        if isinstance(event_payload, dict) and "type" in event_payload:
+            self._dispatch_event(
+                event_payload["type"],
+                args=event_payload.get("args", ()),
+                kwargs=event_payload.get("kwargs", {}),
+            )
+
         for field_name, value in model_data.items():
             if value is not None and store.get(field_name) != value:
                 self.on_frontend_change(field_name, store.get(field_name))
 
     # TODO: bind _repr_* method to anywidget if in jupyter environment
 
+
+################################################
+# == NeoscopeAnyWidget ===
 
 _FRONTEND_DATA_KEY = "_frontend_data"
 
@@ -220,10 +333,14 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         model = self._model()
         if model is None:
             return
-        if (msg := msg.get("event", None)) is not None and isinstance(msg, dict):
-            callback = type(model)._events_callback.get(msg.get("type", None), None)
-            if callback is not None:
-                callback(model, *msg.get("args", []), **msg.get("kwargs", {}))
+        if (event_msg := msg.get("event", None)) is not None and isinstance(event_msg, dict):
+            event_type = event_msg.get("type")
+            if isinstance(event_type, str):
+                model._dispatch_event(
+                    event_type,
+                    args=event_msg.get("args", []),
+                    kwargs=event_msg.get("kwargs", {}),
+                )
 
     @classmethod
     def specialize(cls, model_cls: type[MODEL]) -> type[NeoscopeAnyWidget[MODEL]]:
@@ -253,5 +370,11 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         return specialized_cls
 
 
+################################################
+# === Example widget model: HelloButton ===
 class HelloButton(BaseWidgetModel, widget="HelloButton"):
     value: int = 0
+
+    @event_subscribe("click")
+    def on_click(self, value: int) -> None:
+        """Register a callback for the click event. The callback will receive the current value of the button."""

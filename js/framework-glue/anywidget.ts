@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { Render } from "@anywidget/types";
-import { NeoscopeStore, NeoscopeStoreFactory } from "./zustand";
+import { NeoscopeStore, NeoscopeStoreFactory } from "./neoscopeStore";
 
 interface NeoscopeAnyWidgetModel {
   _frontend_data: Record<string, any>;
@@ -12,8 +12,13 @@ export function createAnywidgetRenderer<Model extends Record<string, any>>(
   createStore: NeoscopeStoreFactory<Model, any>,
 ) {
   const renderHook: Render<NeoscopeAnyWidgetModel> = ({ model, el }) => {
+    function sendEvent(eventName: string, args: any[]) {
+      console.log("Sending event to Python:", eventName, args);
+      model.send({ event: eventName, args });
+    }
+
     // Create the store and the React root for this widget instance
-    const store = createStore();
+    const store = createStore((eventName, eventArgs) => sendEvent(eventName, eventArgs));
     const root = createRoot(el);
     el.classList.add("neoscope-widget-root");
 
