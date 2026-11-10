@@ -1,11 +1,11 @@
 import React from "react";
 import { createAnywidgetRenderer } from "./anywidget";
 import { createStreamlitRenderer } from "./streamlit";
-import { NeoscopeStore } from "./zustand";
+import { NeoscopeStore, NeoscopeStoreContext, NeoscopeStoreFactory } from "./zustand";
 import "__FRAMEWORK_CSS__";
 import { ResizeHeightHandle } from "../components/resizable";
 
-export type { NeoscopeStore } from "./zustand";
+export type { NeoscopeStore, NeoscopeStoreFactory } from "./zustand";
 export { createNeoscopeStore } from "./zustand";
 
 export interface WidgetRendererOpts {
@@ -13,15 +13,19 @@ export interface WidgetRendererOpts {
   resizeableHeight?: number;
 }
 
-export function createNeoscopeRenderer(
+export function createNeoscopeRenderer<Model extends Record<string, any>>(
   render: () => React.ReactNode,
-  store: NeoscopeStore<any, any>,
+  createStore: NeoscopeStoreFactory<Model, any>,
   opts?: WidgetRendererOpts,
 ) {
-  const renderInContainer = () => <NeoscopeWidgetContainer opts={opts}>{render()}</NeoscopeWidgetContainer>;
+  const renderWithStore = (store: NeoscopeStore<Model, any>) => (
+    <NeoscopeWidgetContainer store={store} opts={opts}>
+      {render()}
+    </NeoscopeWidgetContainer>
+  );
   return {
-    anywidget: () => createAnywidgetRenderer(renderInContainer, store),
-    streamlit: () => createStreamlitRenderer(renderInContainer, store),
+    anywidget: () => createAnywidgetRenderer(renderWithStore, createStore),
+    streamlit: () => createStreamlitRenderer(renderWithStore, createStore),
   }[__FRAMEWORK__]();
 }
 
@@ -31,11 +35,12 @@ export function createNeoscopeRenderer(
     It can be used to apply common styles or layout properties to the widget.
    ============================================================== */
 interface NeoscopeWidgetContainerProps {
+  store: NeoscopeStore<any, any>;
   opts?: WidgetRendererOpts;
   children: React.ReactNode; // Accepts any valid React child
 }
 
-function NeoscopeWidgetContainer({ opts, children }: NeoscopeWidgetContainerProps) {
+function NeoscopeWidgetContainer({ store, opts, children }: NeoscopeWidgetContainerProps) {
   let style: React.CSSProperties = {};
   let className = "neoscope-widget";
   if (opts?.maximizableHeight) className += " maximizable-height";
@@ -54,9 +59,11 @@ function NeoscopeWidgetContainer({ opts, children }: NeoscopeWidgetContainerProp
     style["--widget-height"] = `${height}px`;
   }
   return (
-    <div className={className} style={style}>
-      {children}
-      {resizeHandle}
-    </div>
+    <NeoscopeStoreContext.Provider value={store}>
+      <div className={className} style={style}>
+        {children}
+        {resizeHandle}
+      </div>
+    </NeoscopeStoreContext.Provider>
   );
 }

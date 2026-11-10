@@ -1,35 +1,23 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { Render } from "@anywidget/types";
-import { NeoscopeStore } from "./zustand";
+import { NeoscopeStore, NeoscopeStoreFactory } from "./zustand";
 
 interface NeoscopeAnyWidgetModel {
   _frontend_data: Record<string, any>;
 }
 
 export function createAnywidgetRenderer<Model extends Record<string, any>>(
-  render: () => React.ReactNode,
-  store: NeoscopeStore<Model, any>,
+  render: (store: NeoscopeStore<Model, any>) => React.ReactNode,
+  createStore: NeoscopeStoreFactory<Model, any>,
 ) {
   const renderHook: Render<NeoscopeAnyWidgetModel> = ({ model, el }) => {
+    // Create the store and the React root for this widget instance
+    const store = createStore();
     const root = createRoot(el);
     el.classList.add("neoscope-widget-root");
 
-    function onPythonModelChange() {
-      const data = model.get("_frontend_data");
-      if (!data) return;
-      let new_state: Partial<Model> = {};
-      for (const key of Object.keys(data)) {
-        if (!(key in store.initialState())) continue;
-        let key_data = data[key];
-        if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
-        new_state[key as keyof Model] = key_data;
-      }
-      store.setState(new_state);
-      root.render(render());
-    }
-
-    // Écoute les changements du Store React pour mettre à jour le Model Python
+    // Listen to changes from the React store and update the Python model accordingly
     const modelKeys = Object.keys(store.initialState()) as (keyof Model)[];
     const unsubscribeStore = store.subscribe((state) => {
       const modelState: Model = modelKeys.reduce((acc, key) => {
@@ -41,11 +29,23 @@ export function createAnywidgetRenderer<Model extends Record<string, any>>(
       model.save_changes();
     });
 
-    // Écoute les changements venant de Python pour mettre à jour React
-    model.on("change:_frontend_data", onPythonModelChange);
+    // Listen to changes from the Python model and update the React store accordingly
+    function onPythonModelChange() {
+      const data = model.get("_frontend_data");
+      if (!data) return;
+      let new_state: Partial<Model> = {};
+      for (const key of Object.keys(data)) {
+        if (!(key in store.initialState())) continue;
+        let key_data = data[key];
+        if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
+        new_state[key as keyof Model] = key_data;
+      }
+      store.setState(new_state);
+      root.render(render(store)); // Pass the store to the render function to expose it as Context
+    }
 
-    // Premier rendu initial
-    onPythonModelChange();
+    model.on("change:_frontend_data", onPythonModelChange);
+    onPythonModelChange(); // Initial render with the current model state
 
     return () => {
       unsubscribeStore();

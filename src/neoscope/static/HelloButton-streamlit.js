@@ -14236,25 +14236,13 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
-function createAnywidgetRenderer(render, store2) {
+function createAnywidgetRenderer(render, createStore2) {
   const renderHook = ({ model, el }) => {
+    const store = createStore2();
     const root = clientExports.createRoot(el);
     el.classList.add("neoscope-widget-root");
-    function onPythonModelChange() {
-      const data = model.get("_frontend_data");
-      if (!data) return;
-      let new_state = {};
-      for (const key of Object.keys(data)) {
-        if (!(key in store2.initialState())) continue;
-        let key_data = data[key];
-        if (store2.deserializers[key]) key_data = store2.deserializers[key](key_data);
-        new_state[key] = key_data;
-      }
-      store2.setState(new_state);
-      root.render(render());
-    }
-    const modelKeys = Object.keys(store2.initialState());
-    const unsubscribeStore = store2.subscribe((state) => {
+    const modelKeys = Object.keys(store.initialState());
+    const unsubscribeStore = store.subscribe((state) => {
       const modelState = modelKeys.reduce((acc, key) => {
         acc[key] = state[key];
         return acc;
@@ -14263,6 +14251,19 @@ function createAnywidgetRenderer(render, store2) {
       model.set("_frontend_data", modelState);
       model.save_changes();
     });
+    function onPythonModelChange() {
+      const data = model.get("_frontend_data");
+      if (!data) return;
+      let new_state = {};
+      for (const key of Object.keys(data)) {
+        if (!(key in store.initialState())) continue;
+        let key_data = data[key];
+        if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
+        new_state[key] = key_data;
+      }
+      store.setState(new_state);
+      root.render(render(store));
+    }
     model.on("change:_frontend_data", onPythonModelChange);
     onPythonModelChange();
     return () => {
@@ -14273,21 +14274,27 @@ function createAnywidgetRenderer(render, store2) {
   };
   return { render: renderHook };
 }
-const reactRoots = /* @__PURE__ */ new WeakMap();
-function createStreamlitRenderer(render, store2) {
+const instances = /* @__PURE__ */ new WeakMap();
+function createStreamlitRenderer(render, createStore2) {
   const renderHook = (args) => {
     const { data, parentElement, setStateValue } = args;
     const rootElement = parentElement.querySelector(".react-root");
     if (!rootElement) {
       throw new Error("Unexpected: React root element not found");
     }
-    let reactRoot = reactRoots.get(parentElement);
-    if (!reactRoot) {
-      reactRoot = clientExports.createRoot(rootElement);
-      reactRoots.set(parentElement, reactRoot);
+    let instance = instances.get(parentElement);
+    if (!instance) {
+      instance = {
+        root: clientExports.createRoot(rootElement),
+        store: createStore2()
+        // The store is isolated to this widget instance
+      };
+      instances.set(parentElement, instance);
     }
-    const modelKeys = Object.keys(store2.initialState());
-    const unsubscribe = store2.subscribe((state) => {
+    if (instance.unsubscribe) instance.unsubscribe();
+    const { root, store } = instance;
+    const modelKeys = Object.keys(store.initialState());
+    instance.unsubscribe = store.subscribe((state) => {
       modelKeys.forEach((key) => {
         if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) {
           console.log("Sending update:", key, "\n	old:", data[key], "\n	new:", state[key]);
@@ -14295,25 +14302,89 @@ function createStreamlitRenderer(render, store2) {
         }
       });
     });
-    let new_state = {};
+    const new_state = {};
     for (const key of Object.keys(data)) {
-      if (!(key in store2.initialState())) continue;
+      if (!(key in store.initialState())) continue;
       let key_data = data[key];
-      if (store2.deserializers[key]) key_data = store2.deserializers[key](key_data);
+      if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
       new_state[key] = key_data;
     }
-    store2.setState(new_state);
-    reactRoot.render(render());
+    console.log("Received update:", new_state);
+    store.setState(new_state);
+    root.render(render(store));
     return () => {
-      unsubscribe();
-      const reactRoot2 = reactRoots.get(parentElement);
-      if (reactRoot2) {
-        reactRoot2.unmount();
-        reactRoots.delete(parentElement);
+      const currentInstance = instances.get(parentElement);
+      if (currentInstance) {
+        currentInstance.unsubscribe?.();
+        currentInstance.root.unmount();
+        instances.delete(parentElement);
       }
     };
   };
   return renderHook;
+}
+const createStoreImpl = (createState) => {
+  let state;
+  const listeners = /* @__PURE__ */ new Set();
+  const setState = (partial, replace) => {
+    const nextState = typeof partial === "function" ? partial(state) : partial;
+    if (!Object.is(nextState, state)) {
+      const previousState = state;
+      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
+      listeners.forEach((listener) => listener(state, previousState));
+    }
+  };
+  const getState = () => state;
+  const getInitialState = () => initialState;
+  const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const api = { setState, getState, getInitialState, subscribe };
+  const initialState = state = createState(setState, getState, api);
+  return api;
+};
+const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
+const identity = (arg) => arg;
+function useStore(api, selector = identity) {
+  const slice = React.useSyncExternalStore(
+    api.subscribe,
+    React.useCallback(() => selector(api.getState()), [api, selector]),
+    () => selector(api.getInitialState())
+  );
+  React.useDebugValue(slice);
+  return slice;
+}
+const createImpl = (createState) => {
+  const api = createStore(createState);
+  const useBoundStore = (selector) => useStore(api, selector);
+  Object.assign(useBoundStore, api);
+  return useBoundStore;
+};
+const create = ((createState) => createState ? createImpl(createState) : createImpl);
+const NeoscopeStoreContext = reactExports.createContext(null);
+function createNeoscopeStore(initialState, options) {
+  const createStoreInstance = () => {
+    const actions = options?.actions ?? (() => ({}));
+    const store = create((set) => ({
+      ...initialState,
+      ...actions(
+        set
+      )
+    }));
+    store.initialState = () => initialState;
+    store.serializers = options?.serializers ?? {};
+    store.deserializers = options?.deserializers ?? {};
+    return store;
+  };
+  const useScopedStore = (selector) => {
+    const store = reactExports.useContext(NeoscopeStoreContext);
+    if (!store) {
+      throw new Error("Ce hook doit être utilisé à l'intérieur d'un widget Neoscope.");
+    }
+    return selector ? store(selector) : store();
+  };
+  return [createStoreInstance, useScopedStore];
 }
 const ResizeHeightHandle = ({ defaultHeight, onHeightChange, minHeight, maxHeight, className }) => {
   const [height, setHeight] = reactExports.useState(defaultHeight);
@@ -14396,66 +14467,14 @@ const ResizeHeightHandle = ({ defaultHeight, onHeightChange, minHeight, maxHeigh
     }
   );
 };
-const createStoreImpl = (createState) => {
-  let state;
-  const listeners = /* @__PURE__ */ new Set();
-  const setState = (partial, replace) => {
-    const nextState = typeof partial === "function" ? partial(state) : partial;
-    if (!Object.is(nextState, state)) {
-      const previousState = state;
-      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
-      listeners.forEach((listener) => listener(state, previousState));
-    }
-  };
-  const getState = () => state;
-  const getInitialState = () => initialState;
-  const subscribe = (listener) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
-  const api = { setState, getState, getInitialState, subscribe };
-  const initialState = state = createState(setState, getState, api);
-  return api;
-};
-const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
-const identity = (arg) => arg;
-function useStore(api, selector = identity) {
-  const slice = React.useSyncExternalStore(
-    api.subscribe,
-    React.useCallback(() => selector(api.getState()), [api, selector]),
-    () => selector(api.getInitialState())
-  );
-  React.useDebugValue(slice);
-  return slice;
-}
-const createImpl = (createState) => {
-  const api = createStore(createState);
-  const useBoundStore = (selector) => useStore(api, selector);
-  Object.assign(useBoundStore, api);
-  return useBoundStore;
-};
-const create = ((createState) => createState ? createImpl(createState) : createImpl);
-function createNeoscopeStore(initialState, options) {
-  const actions = options?.actions ?? (() => ({}));
-  const store2 = create((set) => ({
-    ...initialState,
-    ...actions(
-      set
-    )
-  }));
-  store2.initialState = () => initialState;
-  store2.serializers = options?.serializers ?? {};
-  store2.deserializers = options?.deserializers ?? {};
-  return store2;
-}
-function createNeoscopeRenderer(render, store2, opts) {
-  const renderInContainer = () => /* @__PURE__ */ jsxRuntimeExports.jsx(NeoscopeWidgetContainer, { opts, children: render() });
+function createNeoscopeRenderer(render, createStore2, opts) {
+  const renderWithStore = (store) => /* @__PURE__ */ jsxRuntimeExports.jsx(NeoscopeWidgetContainer, { store, opts, children: render() });
   return {
-    anywidget: () => createAnywidgetRenderer(renderInContainer, store2),
-    streamlit: () => createStreamlitRenderer(renderInContainer, store2)
+    anywidget: () => createAnywidgetRenderer(renderWithStore, createStore2),
+    streamlit: () => createStreamlitRenderer(renderWithStore, createStore2)
   }["streamlit"]();
 }
-function NeoscopeWidgetContainer({ opts, children }) {
+function NeoscopeWidgetContainer({ store, opts, children }) {
   let style = {};
   let className = "neoscope-widget";
   if (opts?.maximizableHeight) className += " maximizable-height";
@@ -14473,15 +14492,15 @@ function NeoscopeWidgetContainer({ opts, children }) {
     );
     style["--widget-height"] = `${height}px`;
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className, style, children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(NeoscopeStoreContext.Provider, { value: store, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className, style, children: [
     children,
     resizeHandle
-  ] });
+  ] }) });
 }
 const _defaults = {
   value: 0
 };
-const store = createNeoscopeStore(_defaults, {
+const [createHelloStore, useHelloStore] = createNeoscopeStore(_defaults, {
   actions: (set) => ({
     inc() {
       set((state) => ({ value: state.value + 1 }));
@@ -14489,13 +14508,13 @@ const store = createNeoscopeStore(_defaults, {
   })
 });
 const HelloButton = () => {
-  const { value, inc } = store();
+  const { value, inc } = useHelloStore();
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "neoscope", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: inc, children: [
     "count is ",
     value
   ] }) });
 };
-const HelloButton_default = createNeoscopeRenderer(() => /* @__PURE__ */ jsxRuntimeExports.jsx(HelloButton, {}), store);
+const HelloButton_default = createNeoscopeRenderer(() => /* @__PURE__ */ jsxRuntimeExports.jsx(HelloButton, {}), createHelloStore);
 export {
   HelloButton_default as default
 };

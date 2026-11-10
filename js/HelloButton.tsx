@@ -7,7 +7,7 @@ const _defaults = {
   value: 0,
 };
 
-const store = createNeoscopeStore(_defaults, {
+const [createHelloStore, useHelloStore] = createNeoscopeStore(_defaults, {
   actions: (set) => ({
     inc() {
       set((state) => ({ value: state.value + 1 }));
@@ -16,7 +16,7 @@ const store = createNeoscopeStore(_defaults, {
 });
 
 const HelloButton = () => {
-  const { value, inc } = store();
+  const { value, inc } = useHelloStore();
   return (
     <div className="neoscope">
       <button onClick={inc}>count is {value}</button>
@@ -24,4 +24,4 @@ const HelloButton = () => {
   );
 };
 
-export default createNeoscopeRenderer(() => <HelloButton />, store);
+export default createNeoscopeRenderer(() => <HelloButton />, createHelloStore);

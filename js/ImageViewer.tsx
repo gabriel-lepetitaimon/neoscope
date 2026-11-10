@@ -17,7 +17,7 @@ const _defaults = {
   image: { width: 0, height: 0, data: "" } as ImageStr,
 };
 
-const store = createNeoscopeStore(_defaults, {
+const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore(_defaults, {
   deserializers: {
     image: (bytes) => {
       console.log("deserializing image");
@@ -41,7 +41,7 @@ const useCursorStore = createInstanciatedStore<CursorStore>("ImageViewer.cursor"
 
 const ImageViewer = () => {
   // --- STATE ---
-  const { image } = store();
+  const { image } = useImageViewerStore();
   const { height, width, data } = image;
   const domain = new Rect(new Point(height, width));
   const showLeftRuler = true;
@@ -133,7 +133,7 @@ const ImageViewer = () => {
   );
 };
 
-export default createNeoscopeRenderer(() => <ImageViewer />, store, {
+export default createNeoscopeRenderer(() => <ImageViewer />, createImageViewerStore, {
   maximizableHeight: true,
   resizeableHeight: 400,
 });

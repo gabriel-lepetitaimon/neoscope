@@ -17,6 +17,16 @@ from . import __asset_dir__
 _WIDGET_KEY = "__WIDGET__"
 
 
+def event(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """A decorator to mark a method as an event handler for a specific event name."""
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        func._callback_on_event = name
+        return func
+
+    return decorator
+
+
 class BaseModel(pydantic.BaseModel):
     """A base model that watches for changes in its fields and triggers a callback."""
 
@@ -52,16 +62,6 @@ class BaseModel(pydantic.BaseModel):
                 self._notify_watchers(field=name, value=value)
         else:
             super().__setattr__(name, value)
-
-
-def event(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """A decorator to mark a method as an event handler for a specific event name."""
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        func._callback_on_event = name
-        return func
-
-    return decorator
 
 
 class BaseWidgetModel(BaseModel):
