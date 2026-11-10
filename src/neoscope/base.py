@@ -308,6 +308,7 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json())
         # Bind the model to the widget so that changes in the model are reflected in the widget and vice versa.
         self.observe(self.on_frontend_change, names=[_FRONTEND_DATA_KEY])
+        self.on_msg(self.on_msg_received)
         model.on_change(self.on_model_change, silenceable=True)
 
     def on_frontend_change(self, change):
@@ -328,9 +329,10 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         #        with model._silence_change_notifications:
         setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json())
 
-    def on_msg_received(self, msg, buffers):
+    def on_msg_received(self, widget, msg, buffers):
         """Handle messages received from the frontend."""
         model = self._model()
+        self._last_received_msg = msg
         if model is None:
             return
         if (event_msg := msg.get("event", None)) is not None and isinstance(event_msg, dict):

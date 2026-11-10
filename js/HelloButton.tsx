@@ -8,7 +8,7 @@ const Model = {
 };
 
 interface Events {
-  onClick: (value: number) => void;
+  click: (value: number) => void;
 }
 
 const [createHelloStore, useHelloStore] = createNeoscopeStore<Events>()(Model, {
@@ -20,10 +20,11 @@ const [createHelloStore, useHelloStore] = createNeoscopeStore<Events>()(Model, {
 });
 
 const HelloButton = () => {
-  const { value, inc, onClick } = useHelloStore();
+  const { value, inc, click } = useHelloStore();
+  console.log("HelloButton render: value =", value);
   function handleClick() {
     inc();
-    onClick(value + 1);
+    click(value + 1);
   }
 
   return (

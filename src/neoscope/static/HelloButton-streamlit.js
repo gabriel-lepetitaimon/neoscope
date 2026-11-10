@@ -14239,8 +14239,8 @@ var clientExports = requireClient();
 function createAnywidgetRenderer(render, createStore2) {
   const renderHook = ({ model, el }) => {
     function sendEvent(eventName, args) {
-      console.log("Sending event to Python:", eventName, args);
-      model.send({ event: eventName, args });
+      console.log("Sending event to Python:", { event: { type: eventName, args } });
+      model.send({ event: { type: eventName, args } });
     }
     const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
     const root = clientExports.createRoot(el);
@@ -14254,6 +14254,7 @@ function createAnywidgetRenderer(render, createStore2) {
       if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
       model.set("_frontend_data", modelState);
       model.save_changes();
+      console.log("Updating Python model from React store:", modelState);
     });
     function onPythonModelChange() {
       const data = model.get("_frontend_data");
@@ -14265,6 +14266,7 @@ function createAnywidgetRenderer(render, createStore2) {
         if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
         new_state[key] = key_data;
       }
+      console.log("Updating React store from Python model:", new_state);
       store.setState(new_state);
       root.render(render(store));
     }
@@ -14528,10 +14530,11 @@ const [createHelloStore, useHelloStore] = createNeoscopeStore()(Model, {
   })
 });
 const HelloButton = () => {
-  const { value, inc, onClick } = useHelloStore();
+  const { value, inc, click } = useHelloStore();
+  console.log("HelloButton render: value =", value);
   function handleClick() {
     inc();
-    onClick(value + 1);
+    click(value + 1);
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "neoscope", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: handleClick, children: [
     "count is ",

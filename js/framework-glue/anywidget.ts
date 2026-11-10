@@ -13,8 +13,8 @@ export function createAnywidgetRenderer<Model extends Record<string, any>>(
 ) {
   const renderHook: Render<NeoscopeAnyWidgetModel> = ({ model, el }) => {
     function sendEvent(eventName: string, args: any[]) {
-      console.log("Sending event to Python:", eventName, args);
-      model.send({ event: eventName, args });
+      console.log("Sending event to Python:", { event: { type: eventName, args } });
+      model.send({ event: { type: eventName, args } });
     }
 
     // Create the store and the React root for this widget instance
@@ -32,6 +32,7 @@ export function createAnywidgetRenderer<Model extends Record<string, any>>(
       if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
       model.set("_frontend_data", modelState);
       model.save_changes();
+      console.log("Updating Python model from React store:", modelState);
     });
 
     // Listen to changes from the Python model and update the React store accordingly
@@ -45,6 +46,7 @@ export function createAnywidgetRenderer<Model extends Record<string, any>>(
         if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
         new_state[key as keyof Model] = key_data;
       }
+      console.log("Updating React store from Python model:", new_state);
       store.setState(new_state);
       root.render(render(store)); // Pass the store to the render function to expose it as Context
     }

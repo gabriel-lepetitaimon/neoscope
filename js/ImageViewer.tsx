@@ -52,7 +52,7 @@ const ImageViewer = () => {
 
   // --- ZOOM CONTROLLER ---
   const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
-  useSceneMouseEventListener(zoomController, {}, useCursorStore.getState(0).setCursorPos);
+  useSceneMouseEventListener(zoomController, undefined, useCursorStore.getState(0).setCursorPos);
 
   // --- SCENE TRANSFORM ---
   const t = zoomState;

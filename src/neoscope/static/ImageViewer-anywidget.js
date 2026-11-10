@@ -14239,8 +14239,8 @@ var clientExports = requireClient();
 function createAnywidgetRenderer(render, createStore2) {
   const renderHook = ({ model, el }) => {
     function sendEvent(eventName, args) {
-      console.log("Sending event to Python:", eventName, args);
-      model.send({ event: eventName, args });
+      console.log("Sending event to Python:", { event: { type: eventName, args } });
+      model.send({ event: { type: eventName, args } });
     }
     const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
     const root = clientExports.createRoot(el);
@@ -14254,6 +14254,7 @@ function createAnywidgetRenderer(render, createStore2) {
       if (JSON.stringify(modelState) === JSON.stringify(model.get("_frontend_data"))) return;
       model.set("_frontend_data", modelState);
       model.save_changes();
+      console.log("Updating Python model from React store:", modelState);
     });
     function onPythonModelChange() {
       const data = model.get("_frontend_data");
@@ -14265,6 +14266,7 @@ function createAnywidgetRenderer(render, createStore2) {
         if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
         new_state[key] = key_data;
       }
+      console.log("Updating React store from Python model:", new_state);
       store.setState(new_state);
       root.render(render(store));
     }
@@ -16284,7 +16286,7 @@ function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) 
       area.removeEventListener("wheel", wheelEL);
       zoomCtrls.endPan();
     };
-  }, [zoomController, zoomController.areaNode, userEvents, onCursorChange]);
+  }, [zoomController, zoomController.areaNode]);
   console.log(zoomController, zoomController.areaNode, userEvents, onCursorChange);
 }
 class ZoomControls {
@@ -16417,7 +16419,7 @@ const ImageViewer = () => {
   const { height, width, data } = image;
   const domain = new Rect(new Point(height, width));
   const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
-  useSceneMouseEventListener(zoomController, {}, useCursorStore.getState(0).setCursorPos);
+  useSceneMouseEventListener(zoomController, void 0, useCursorStore.getState(0).setCursorPos);
   const t = zoomState;
   const sceneSize = t.sceneDomain.size.multiply(zoomState.scale);
   const viewTopLeft = t.zoomArea.viewSize.half().subtract(t.center.subtract(t.sceneDomain.topLeft).multiply(t.scale));

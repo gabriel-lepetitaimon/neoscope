@@ -182,7 +182,7 @@ export function useSceneMouseEventListener(
       area.removeEventListener("wheel", wheelEL);
       zoomCtrls.endPan();
     };
-  }, [zoomController, zoomController.areaNode, userEvents, onCursorChange]);
+  }, [zoomController, zoomController.areaNode]);
   console.log(zoomController, zoomController.areaNode, userEvents, onCursorChange);
 }
 
