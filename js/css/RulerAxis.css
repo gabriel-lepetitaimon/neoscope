@@ -18,6 +18,11 @@
   font-weight: normal;
   dominant-baseline: hanging;
   fill: var(--neoscope-dim-foreground-color);
+
+  /* Prevent text selection */
+  -webkit-user-select: none; 
+  -ms-user-select: none;     
+  user-select: none;      
 }
 
 .RulerAxis .BoundariesLabelTick text {

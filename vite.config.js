@@ -27,7 +27,7 @@ export default defineConfig(() => {
   return {
     resolve: {
       alias: {
-        __FRAMEWORK_CSS__: path.resolve(__dirname, `./js/css/${target}.min.css`),
+        __FRAMEWORK_CSS__: path.resolve(__dirname, `./js/framework-glue/${target}.min.css`),
       },
     },
     build: {

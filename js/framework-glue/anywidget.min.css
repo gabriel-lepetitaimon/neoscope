@@ -1,0 +1,35 @@
+.neoscope-widget {
+  color-scheme: var(--base);
+  --neoscope-foreground-color: var(--vscode-editor-foreground, var(--jp-content-font-color1));
+  --neoscope-dim-foreground-color: var(--vscode-input-placeholderForeground, var(--jp-content-font-color2));
+  --neoscope-highlight-color: var(--vscode-icon-foreground, var(--jp-brand-color1));
+
+  --neoscope-background-color: var(--vscode-notebook-editorBackground, var(--jp-layout-color2));
+  --neoscope-dim-background-color: var(--vscode-input-background, var(--jp-layout-color3));
+  --neoscope-highlight-background-color:  var(--vscode-panel-background, var(--jp-layout-color1));
+  --neoscope-shadow-color: #000;
+
+  color: var(--neoscope-foreground-color);
+  height: var(--widget-height);
+}
+.neoscope-widget text{
+  display: block;
+}
+
+/* Maximize height of linked output view in Jypter Lab */
+.jp-LinkedOutputView .jp-OutputArea-output:has(.maximizable-height) {
+  display: block;
+}
+.jp-LinkedOutputView .neoscope-widget-root {
+  margin: 0;
+  height: 100%;
+}
+.jp-LinkedOutputView .neoscope-widget{
+  height: 100%;
+}
+/* Hide the resize handle in linked output view */
+.jp-LinkedOutputView .neoscope-widget-root .widget-height-handle{
+  visibility: hidden;
+}
+
+

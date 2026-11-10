@@ -7,18 +7,25 @@ interface NeoscopeAnyWidgetModel {
   _frontend_data: Record<string, any>;
 }
 
-export function createAnywidgetRenderer<Model extends Record<string, any>, Actions extends Record<string, any>>(
+export function createAnywidgetRenderer<Model extends Record<string, any>>(
   render: () => React.ReactNode,
-  store: NeoscopeStore<Model, Actions>,
+  store: NeoscopeStore<Model, any>,
 ) {
   const renderHook: Render<NeoscopeAnyWidgetModel> = ({ model, el }) => {
     const root = createRoot(el);
-    el.classList.add("neoscope-widget");
+    el.classList.add("neoscope-widget-root");
 
     function onPythonModelChange() {
       const data = model.get("_frontend_data");
       if (!data) return;
-      store.setState(model.get("_frontend_data"));
+      let new_state: Partial<Model> = {};
+      for (const key of Object.keys(data)) {
+        if (!(key in store.initialState())) continue;
+        let key_data = data[key];
+        if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
+        new_state[key as keyof Model] = key_data;
+      }
+      store.setState(new_state);
       root.render(render());
     }
 

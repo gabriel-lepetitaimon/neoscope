@@ -4,9 +4,9 @@ import { createRoot, Root } from "react-dom/client";
 
 const reactRoots: WeakMap<FrontendRendererArgs["parentElement"], Root> = new WeakMap();
 
-export function createStreamlitRenderer<Model extends Record<string, any>, Actions extends Record<string, any>>(
+export function createStreamlitRenderer<Model extends Record<string, any>>(
   render: () => React.ReactNode,
-  store: NeoscopeStore<Model, Actions>,
+  store: NeoscopeStore<Model, any>,
 ) {
   const renderHook: FrontendRenderer<Model, Model> = (args) => {
     const { data, parentElement, setStateValue } = args;
@@ -36,7 +36,14 @@ export function createStreamlitRenderer<Model extends Record<string, any>, Actio
 
     // Render/re-render the React application into the root using the React DOM
     // API.
-    store.setState(data as Model);
+    let new_state: Partial<Model> = {};
+    for (const key of Object.keys(data)) {
+      if (!(key in store.initialState())) continue;
+      let key_data = data[key];
+      if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
+      new_state[key as keyof Model] = key_data;
+    }
+    store.setState(new_state);
     reactRoot.render(render());
 
     // Return a function to cleanup the React application in the Streamlit

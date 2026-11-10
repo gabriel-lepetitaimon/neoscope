@@ -1,7 +1,12 @@
 /*********************************************************
  *     === Point ===
  *********************************************************/
-export class Point {
+export interface PointLike {
+  y: number;
+  x: number;
+}
+
+export class Point implements PointLike {
   constructor(
     public y = 0,
     public x = 0,
@@ -123,6 +128,13 @@ export class Point {
   equals(p: Point): boolean {
     return this.x === p.x && this.y === p.y;
   }
+}
+
+export function asPoint(p: PointLike): Point {
+  return new Point(p.y, p.x);
+}
+export function asPointOrNull(p: PointLike | null): Point | null {
+  return p != null ? new Point(p.y, p.x) : null;
 }
 
 export const ORIGIN = Point.ORIGIN;

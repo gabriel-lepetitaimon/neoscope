@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import weakref
 from collections.abc import Callable, Sequence
-from functools import wraps
 from typing import Any, Self
 
 import anywidget
@@ -216,22 +215,43 @@ class NeoscopeAnyWidget[MODEL: BaseWidgetModel](anywidget.AnyWidget):
         #        with model._silence_change_notifications:
         setattr(self, _FRONTEND_DATA_KEY, model.dump_flat_json())
 
+    def on_msg_received(self, msg, buffers):
+        """Handle messages received from the frontend."""
+        model = self._model()
+        if model is None:
+            return
+        if (msg := msg.get("event", None)) is not None and isinstance(msg, dict):
+            callback = type(model)._events_callback.get(msg.get("type", None), None)
+            if callback is not None:
+                callback(model, *msg.get("args", []), **msg.get("kwargs", {}))
+
     @classmethod
     def specialize(cls, model_cls: type[MODEL]) -> type[NeoscopeAnyWidget[MODEL]]:
         """Create a specialized AnyWidget class for the given model type."""
         if not issubclass(model_cls, BaseWidgetModel):
             raise TypeError(f"model must be a subclass of BaseWidgetModel, got {model_cls}")
 
+        # === Check for existing specialized class ===
+        if hasattr(model_cls, "_anywidget_cls"):
+            return model_cls._anywidget_cls  # type: ignore
+
+        # === Otherwise create the specialized class ===
         widget_name = getattr(model_cls, _WIDGET_KEY, None)
         if not isinstance(widget_name, str):
             widget_name = getattr(widget_name, "default", None)
 
-        class SpecializedAnyWidget(NeoscopeAnyWidget[MODEL]):
-            _esm = __asset_dir__ / f"{widget_name}-anywidget.js"
-            _css = __asset_dir__ / f"{widget_name}-anywidget.css"
+        specialized_cls = type(
+            f"{widget_name}_AnyWidget",
+            (NeoscopeAnyWidget,),
+            {
+                "_esm": __asset_dir__ / f"{widget_name}-anywidget.js",
+                "_css": __asset_dir__ / f"{widget_name}-anywidget.css",
+            },
+        )
 
-        return SpecializedAnyWidget
+        model_cls._anywidget_cls = specialized_cls  # type: ignore
+        return specialized_cls
 
 
-class HelloButtonModel(BaseWidgetModel, widget="HelloButton"):
+class HelloButton(BaseWidgetModel, widget="HelloButton"):
     value: int = 0

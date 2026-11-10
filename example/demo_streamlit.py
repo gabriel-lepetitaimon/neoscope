@@ -1,22 +1,14 @@
 import streamlit as st
-from streamlit_anywidget import anywidget
 
-from neoscope.base import HelloButtonModel
 from neoscope.image_viewer import ImageViewer
 from neoscope.utils.image import checkerboard
 
-st.title("Counter Widget Example")
-counter = HelloButtonModel()
-counter_state = counter.streamlit(key="counter")
+st.set_page_config(layout="wide")
+st.title("Image Viewer Widget Example")
 
-view = ImageViewer(image=checkerboard((100, 100)))
-view.streamlit(key="image_viewer")
+with st.container(horizontal=True):
+    view1 = ImageViewer(image=checkerboard((100, 100)))
+    view1.streamlit(key="view1")
 
-
-# Interact with the widget state
-st.write(f"Current value 2: {counter.value}")
-
-# Show debug info
-with st.expander("Module Counter Debug Info"):
-    st.write("Module-based Counter State:", counter_state)
-    st.json({"module_counter_value": counter.value})
+    view2 = ImageViewer(image=checkerboard((100, 100), color2="green"))
+    view2.streamlit(key="view2")

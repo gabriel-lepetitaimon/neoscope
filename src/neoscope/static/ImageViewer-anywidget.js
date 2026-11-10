@@ -41,274 +41,6 @@ function requireJsxRuntime() {
   return jsxRuntime.exports;
 }
 var jsxRuntimeExports = requireJsxRuntime();
-var client = { exports: {} };
-var reactDomClient_production = {};
-var scheduler = { exports: {} };
-var scheduler_production = {};
-var hasRequiredScheduler_production;
-function requireScheduler_production() {
-  if (hasRequiredScheduler_production) return scheduler_production;
-  hasRequiredScheduler_production = 1;
-  (function(exports) {
-    function push(heap, node) {
-      var index = heap.length;
-      heap.push(node);
-      a: for (; 0 < index; ) {
-        var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
-        if (0 < compare(parent, node))
-          heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
-        else break a;
-      }
-    }
-    function peek(heap) {
-      return 0 === heap.length ? null : heap[0];
-    }
-    function pop(heap) {
-      if (0 === heap.length) return null;
-      var first = heap[0], last = heap.pop();
-      if (last !== first) {
-        heap[0] = last;
-        a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength; ) {
-          var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
-          if (0 > compare(left, last))
-            rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
-          else if (rightIndex < length && 0 > compare(right, last))
-            heap[index] = right, heap[rightIndex] = last, index = rightIndex;
-          else break a;
-        }
-      }
-      return first;
-    }
-    function compare(a, b) {
-      var diff = a.sortIndex - b.sortIndex;
-      return 0 !== diff ? diff : a.id - b.id;
-    }
-    exports.unstable_now = void 0;
-    if ("object" === typeof performance && "function" === typeof performance.now) {
-      var localPerformance = performance;
-      exports.unstable_now = function() {
-        return localPerformance.now();
-      };
-    } else {
-      var localDate = Date, initialTime = localDate.now();
-      exports.unstable_now = function() {
-        return localDate.now() - initialTime;
-      };
-    }
-    var taskQueue = [], timerQueue = [], taskIdCounter = 1, currentTask = null, currentPriorityLevel = 3, isPerformingWork = false, isHostCallbackScheduled = false, isHostTimeoutScheduled = false, needsPaint = false, localSetTimeout = "function" === typeof setTimeout ? setTimeout : null, localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null, localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
-    function advanceTimers(currentTime) {
-      for (var timer = peek(timerQueue); null !== timer; ) {
-        if (null === timer.callback) pop(timerQueue);
-        else if (timer.startTime <= currentTime)
-          pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
-        else break;
-        timer = peek(timerQueue);
-      }
-    }
-    function handleTimeout(currentTime) {
-      isHostTimeoutScheduled = false;
-      advanceTimers(currentTime);
-      if (!isHostCallbackScheduled)
-        if (null !== peek(taskQueue))
-          isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline());
-        else {
-          var firstTimer = peek(timerQueue);
-          null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
-        }
-    }
-    var isMessageLoopRunning = false, taskTimeoutID = -1, frameInterval = 5, startTime = -1;
-    function shouldYieldToHost() {
-      return needsPaint ? true : exports.unstable_now() - startTime < frameInterval ? false : true;
-    }
-    function performWorkUntilDeadline() {
-      needsPaint = false;
-      if (isMessageLoopRunning) {
-        var currentTime = exports.unstable_now();
-        startTime = currentTime;
-        var hasMoreWork = true;
-        try {
-          a: {
-            isHostCallbackScheduled = false;
-            isHostTimeoutScheduled && (isHostTimeoutScheduled = false, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
-            isPerformingWork = true;
-            var previousPriorityLevel = currentPriorityLevel;
-            try {
-              b: {
-                advanceTimers(currentTime);
-                for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost()); ) {
-                  var callback = currentTask.callback;
-                  if ("function" === typeof callback) {
-                    currentTask.callback = null;
-                    currentPriorityLevel = currentTask.priorityLevel;
-                    var continuationCallback = callback(
-                      currentTask.expirationTime <= currentTime
-                    );
-                    currentTime = exports.unstable_now();
-                    if ("function" === typeof continuationCallback) {
-                      currentTask.callback = continuationCallback;
-                      advanceTimers(currentTime);
-                      hasMoreWork = true;
-                      break b;
-                    }
-                    currentTask === peek(taskQueue) && pop(taskQueue);
-                    advanceTimers(currentTime);
-                  } else pop(taskQueue);
-                  currentTask = peek(taskQueue);
-                }
-                if (null !== currentTask) hasMoreWork = true;
-                else {
-                  var firstTimer = peek(timerQueue);
-                  null !== firstTimer && requestHostTimeout(
-                    handleTimeout,
-                    firstTimer.startTime - currentTime
-                  );
-                  hasMoreWork = false;
-                }
-              }
-              break a;
-            } finally {
-              currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = false;
-            }
-            hasMoreWork = void 0;
-          }
-        } finally {
-          hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = false;
-        }
-      }
-    }
-    var schedulePerformWorkUntilDeadline;
-    if ("function" === typeof localSetImmediate)
-      schedulePerformWorkUntilDeadline = function() {
-        localSetImmediate(performWorkUntilDeadline);
-      };
-    else if ("undefined" !== typeof MessageChannel) {
-      var channel = new MessageChannel(), port = channel.port2;
-      channel.port1.onmessage = performWorkUntilDeadline;
-      schedulePerformWorkUntilDeadline = function() {
-        port.postMessage(null);
-      };
-    } else
-      schedulePerformWorkUntilDeadline = function() {
-        localSetTimeout(performWorkUntilDeadline, 0);
-      };
-    function requestHostTimeout(callback, ms) {
-      taskTimeoutID = localSetTimeout(function() {
-        callback(exports.unstable_now());
-      }, ms);
-    }
-    exports.unstable_IdlePriority = 5;
-    exports.unstable_ImmediatePriority = 1;
-    exports.unstable_LowPriority = 4;
-    exports.unstable_NormalPriority = 3;
-    exports.unstable_Profiling = null;
-    exports.unstable_UserBlockingPriority = 2;
-    exports.unstable_cancelCallback = function(task) {
-      task.callback = null;
-    };
-    exports.unstable_forceFrameRate = function(fps) {
-      0 > fps || 125 < fps ? console.error(
-        "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
-      ) : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
-    };
-    exports.unstable_getCurrentPriorityLevel = function() {
-      return currentPriorityLevel;
-    };
-    exports.unstable_next = function(eventHandler) {
-      switch (currentPriorityLevel) {
-        case 1:
-        case 2:
-        case 3:
-          var priorityLevel = 3;
-          break;
-        default:
-          priorityLevel = currentPriorityLevel;
-      }
-      var previousPriorityLevel = currentPriorityLevel;
-      currentPriorityLevel = priorityLevel;
-      try {
-        return eventHandler();
-      } finally {
-        currentPriorityLevel = previousPriorityLevel;
-      }
-    };
-    exports.unstable_requestPaint = function() {
-      needsPaint = true;
-    };
-    exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
-      switch (priorityLevel) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-          break;
-        default:
-          priorityLevel = 3;
-      }
-      var previousPriorityLevel = currentPriorityLevel;
-      currentPriorityLevel = priorityLevel;
-      try {
-        return eventHandler();
-      } finally {
-        currentPriorityLevel = previousPriorityLevel;
-      }
-    };
-    exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
-      var currentTime = exports.unstable_now();
-      "object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
-      switch (priorityLevel) {
-        case 1:
-          var timeout = -1;
-          break;
-        case 2:
-          timeout = 250;
-          break;
-        case 5:
-          timeout = 1073741823;
-          break;
-        case 4:
-          timeout = 1e4;
-          break;
-        default:
-          timeout = 5e3;
-      }
-      timeout = options + timeout;
-      priorityLevel = {
-        id: taskIdCounter++,
-        callback,
-        priorityLevel,
-        startTime: options,
-        expirationTime: timeout,
-        sortIndex: -1
-      };
-      options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = true, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline())));
-      return priorityLevel;
-    };
-    exports.unstable_shouldYield = shouldYieldToHost;
-    exports.unstable_wrapCallback = function(callback) {
-      var parentPriorityLevel = currentPriorityLevel;
-      return function() {
-        var previousPriorityLevel = currentPriorityLevel;
-        currentPriorityLevel = parentPriorityLevel;
-        try {
-          return callback.apply(this, arguments);
-        } finally {
-          currentPriorityLevel = previousPriorityLevel;
-        }
-      };
-    };
-  })(scheduler_production);
-  return scheduler_production;
-}
-var hasRequiredScheduler;
-function requireScheduler() {
-  if (hasRequiredScheduler) return scheduler.exports;
-  hasRequiredScheduler = 1;
-  {
-    scheduler.exports = requireScheduler_production();
-  }
-  return scheduler.exports;
-}
 var react = { exports: {} };
 var react_production = {};
 var hasRequiredReact_production;
@@ -754,6 +486,276 @@ function requireReact() {
     react.exports = requireReact_production();
   }
   return react.exports;
+}
+var reactExports = requireReact();
+const React = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
+var client = { exports: {} };
+var reactDomClient_production = {};
+var scheduler = { exports: {} };
+var scheduler_production = {};
+var hasRequiredScheduler_production;
+function requireScheduler_production() {
+  if (hasRequiredScheduler_production) return scheduler_production;
+  hasRequiredScheduler_production = 1;
+  (function(exports) {
+    function push(heap, node) {
+      var index = heap.length;
+      heap.push(node);
+      a: for (; 0 < index; ) {
+        var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
+        if (0 < compare(parent, node))
+          heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
+        else break a;
+      }
+    }
+    function peek(heap) {
+      return 0 === heap.length ? null : heap[0];
+    }
+    function pop(heap) {
+      if (0 === heap.length) return null;
+      var first = heap[0], last = heap.pop();
+      if (last !== first) {
+        heap[0] = last;
+        a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength; ) {
+          var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
+          if (0 > compare(left, last))
+            rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
+          else if (rightIndex < length && 0 > compare(right, last))
+            heap[index] = right, heap[rightIndex] = last, index = rightIndex;
+          else break a;
+        }
+      }
+      return first;
+    }
+    function compare(a, b) {
+      var diff = a.sortIndex - b.sortIndex;
+      return 0 !== diff ? diff : a.id - b.id;
+    }
+    exports.unstable_now = void 0;
+    if ("object" === typeof performance && "function" === typeof performance.now) {
+      var localPerformance = performance;
+      exports.unstable_now = function() {
+        return localPerformance.now();
+      };
+    } else {
+      var localDate = Date, initialTime = localDate.now();
+      exports.unstable_now = function() {
+        return localDate.now() - initialTime;
+      };
+    }
+    var taskQueue = [], timerQueue = [], taskIdCounter = 1, currentTask = null, currentPriorityLevel = 3, isPerformingWork = false, isHostCallbackScheduled = false, isHostTimeoutScheduled = false, needsPaint = false, localSetTimeout = "function" === typeof setTimeout ? setTimeout : null, localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null, localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
+    function advanceTimers(currentTime) {
+      for (var timer = peek(timerQueue); null !== timer; ) {
+        if (null === timer.callback) pop(timerQueue);
+        else if (timer.startTime <= currentTime)
+          pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
+        else break;
+        timer = peek(timerQueue);
+      }
+    }
+    function handleTimeout(currentTime) {
+      isHostTimeoutScheduled = false;
+      advanceTimers(currentTime);
+      if (!isHostCallbackScheduled)
+        if (null !== peek(taskQueue))
+          isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline());
+        else {
+          var firstTimer = peek(timerQueue);
+          null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+        }
+    }
+    var isMessageLoopRunning = false, taskTimeoutID = -1, frameInterval = 5, startTime = -1;
+    function shouldYieldToHost() {
+      return needsPaint ? true : exports.unstable_now() - startTime < frameInterval ? false : true;
+    }
+    function performWorkUntilDeadline() {
+      needsPaint = false;
+      if (isMessageLoopRunning) {
+        var currentTime = exports.unstable_now();
+        startTime = currentTime;
+        var hasMoreWork = true;
+        try {
+          a: {
+            isHostCallbackScheduled = false;
+            isHostTimeoutScheduled && (isHostTimeoutScheduled = false, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
+            isPerformingWork = true;
+            var previousPriorityLevel = currentPriorityLevel;
+            try {
+              b: {
+                advanceTimers(currentTime);
+                for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost()); ) {
+                  var callback = currentTask.callback;
+                  if ("function" === typeof callback) {
+                    currentTask.callback = null;
+                    currentPriorityLevel = currentTask.priorityLevel;
+                    var continuationCallback = callback(
+                      currentTask.expirationTime <= currentTime
+                    );
+                    currentTime = exports.unstable_now();
+                    if ("function" === typeof continuationCallback) {
+                      currentTask.callback = continuationCallback;
+                      advanceTimers(currentTime);
+                      hasMoreWork = true;
+                      break b;
+                    }
+                    currentTask === peek(taskQueue) && pop(taskQueue);
+                    advanceTimers(currentTime);
+                  } else pop(taskQueue);
+                  currentTask = peek(taskQueue);
+                }
+                if (null !== currentTask) hasMoreWork = true;
+                else {
+                  var firstTimer = peek(timerQueue);
+                  null !== firstTimer && requestHostTimeout(
+                    handleTimeout,
+                    firstTimer.startTime - currentTime
+                  );
+                  hasMoreWork = false;
+                }
+              }
+              break a;
+            } finally {
+              currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = false;
+            }
+            hasMoreWork = void 0;
+          }
+        } finally {
+          hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = false;
+        }
+      }
+    }
+    var schedulePerformWorkUntilDeadline;
+    if ("function" === typeof localSetImmediate)
+      schedulePerformWorkUntilDeadline = function() {
+        localSetImmediate(performWorkUntilDeadline);
+      };
+    else if ("undefined" !== typeof MessageChannel) {
+      var channel = new MessageChannel(), port = channel.port2;
+      channel.port1.onmessage = performWorkUntilDeadline;
+      schedulePerformWorkUntilDeadline = function() {
+        port.postMessage(null);
+      };
+    } else
+      schedulePerformWorkUntilDeadline = function() {
+        localSetTimeout(performWorkUntilDeadline, 0);
+      };
+    function requestHostTimeout(callback, ms) {
+      taskTimeoutID = localSetTimeout(function() {
+        callback(exports.unstable_now());
+      }, ms);
+    }
+    exports.unstable_IdlePriority = 5;
+    exports.unstable_ImmediatePriority = 1;
+    exports.unstable_LowPriority = 4;
+    exports.unstable_NormalPriority = 3;
+    exports.unstable_Profiling = null;
+    exports.unstable_UserBlockingPriority = 2;
+    exports.unstable_cancelCallback = function(task) {
+      task.callback = null;
+    };
+    exports.unstable_forceFrameRate = function(fps) {
+      0 > fps || 125 < fps ? console.error(
+        "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
+      ) : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
+    };
+    exports.unstable_getCurrentPriorityLevel = function() {
+      return currentPriorityLevel;
+    };
+    exports.unstable_next = function(eventHandler) {
+      switch (currentPriorityLevel) {
+        case 1:
+        case 2:
+        case 3:
+          var priorityLevel = 3;
+          break;
+        default:
+          priorityLevel = currentPriorityLevel;
+      }
+      var previousPriorityLevel = currentPriorityLevel;
+      currentPriorityLevel = priorityLevel;
+      try {
+        return eventHandler();
+      } finally {
+        currentPriorityLevel = previousPriorityLevel;
+      }
+    };
+    exports.unstable_requestPaint = function() {
+      needsPaint = true;
+    };
+    exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
+      switch (priorityLevel) {
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+          break;
+        default:
+          priorityLevel = 3;
+      }
+      var previousPriorityLevel = currentPriorityLevel;
+      currentPriorityLevel = priorityLevel;
+      try {
+        return eventHandler();
+      } finally {
+        currentPriorityLevel = previousPriorityLevel;
+      }
+    };
+    exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
+      var currentTime = exports.unstable_now();
+      "object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
+      switch (priorityLevel) {
+        case 1:
+          var timeout = -1;
+          break;
+        case 2:
+          timeout = 250;
+          break;
+        case 5:
+          timeout = 1073741823;
+          break;
+        case 4:
+          timeout = 1e4;
+          break;
+        default:
+          timeout = 5e3;
+      }
+      timeout = options + timeout;
+      priorityLevel = {
+        id: taskIdCounter++,
+        callback,
+        priorityLevel,
+        startTime: options,
+        expirationTime: timeout,
+        sortIndex: -1
+      };
+      options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = true, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline())));
+      return priorityLevel;
+    };
+    exports.unstable_shouldYield = shouldYieldToHost;
+    exports.unstable_wrapCallback = function(callback) {
+      var parentPriorityLevel = currentPriorityLevel;
+      return function() {
+        var previousPriorityLevel = currentPriorityLevel;
+        currentPriorityLevel = parentPriorityLevel;
+        try {
+          return callback.apply(this, arguments);
+        } finally {
+          currentPriorityLevel = previousPriorityLevel;
+        }
+      };
+    };
+  })(scheduler_production);
+  return scheduler_production;
+}
+var hasRequiredScheduler;
+function requireScheduler() {
+  if (hasRequiredScheduler) return scheduler.exports;
+  hasRequiredScheduler = 1;
+  {
+    scheduler.exports = requireScheduler_production();
+  }
+  return scheduler.exports;
 }
 var reactDom = { exports: {} };
 var reactDom_production = {};
@@ -14237,11 +14239,18 @@ var clientExports = requireClient();
 function createAnywidgetRenderer(render, store2) {
   const renderHook = ({ model, el }) => {
     const root = clientExports.createRoot(el);
-    el.classList.add("neoscope-widget");
+    el.classList.add("neoscope-widget-root");
     function onPythonModelChange() {
       const data = model.get("_frontend_data");
       if (!data) return;
-      store2.setState(model.get("_frontend_data"));
+      let new_state = {};
+      for (const key of Object.keys(data)) {
+        if (!(key in store2.initialState())) continue;
+        let key_data = data[key];
+        if (store2.deserializers[key]) key_data = store2.deserializers[key](key_data);
+        new_state[key] = key_data;
+      }
+      store2.setState(new_state);
       root.render(render());
     }
     const modelKeys = Object.keys(store2.initialState());
@@ -14286,7 +14295,14 @@ function createStreamlitRenderer(render, store2) {
         }
       });
     });
-    store2.setState(data);
+    let new_state = {};
+    for (const key of Object.keys(data)) {
+      if (!(key in store2.initialState())) continue;
+      let key_data = data[key];
+      if (store2.deserializers[key]) key_data = store2.deserializers[key](key_data);
+      new_state[key] = key_data;
+    }
+    store2.setState(new_state);
     reactRoot.render(render());
     return () => {
       unsubscribe();
@@ -14299,6 +14315,87 @@ function createStreamlitRenderer(render, store2) {
   };
   return renderHook;
 }
+const ResizeHeightHandle = ({ defaultHeight, onHeightChange, minHeight, maxHeight, className }) => {
+  const [height, setHeight] = reactExports.useState(defaultHeight);
+  const [isHighligted, setIsHighligted] = reactExports.useState(false);
+  const isResizingRef = reactExports.useRef(false);
+  const isHoveredRef = reactExports.useRef(false);
+  const startResizing = (e) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startY = e.clientY;
+    const startHeight = height;
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+      if (isHighligted && !isHoveredRef.current) setIsHighligted(false);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    const onMouseMove = (moveEvent) => {
+      if (!isResizingRef.current) return;
+      if (moveEvent.buttons === 0) {
+        onMouseUp();
+        return;
+      }
+      const deltaY = moveEvent.clientY - startY;
+      let newHeight = startHeight + deltaY;
+      if (minHeight !== void 0) newHeight = Math.max(newHeight, minHeight);
+      else newHeight = Math.max(newHeight, 10);
+      if (maxHeight !== void 0) newHeight = Math.min(newHeight, maxHeight);
+      setHeight(newHeight);
+      onHeightChange(newHeight);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      className,
+      onMouseDown: startResizing,
+      onMouseEnter: () => {
+        isHoveredRef.current = true;
+        setIsHighligted(true);
+      },
+      onMouseLeave: () => {
+        isHoveredRef.current = false;
+        if (!isResizingRef.current) setIsHighligted(false);
+      },
+      style: {
+        position: "absolute",
+        bottom: "4px",
+        right: "4px",
+        width: "12px",
+        height: "12px",
+        cursor: "ns-resize",
+        // Curseur vertical uniquement (nord-sud)
+        zIndex: 10,
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "flex-end"
+      },
+      title: "Drag to adjust height",
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "svg",
+        {
+          width: "100%",
+          height: "100%",
+          viewBox: "0 0 10 10",
+          style: {
+            overflow: "visible",
+            stroke: isHighligted ? "var(--neoscope-highlight-color)" : "var(--neoscope-dim-foreground-color)",
+            strokeWidth: 1.5,
+            strokeLinecap: "round"
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "2", x2: "2", y2: "8" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "5", x2: "5", y2: "8" })
+          ]
+        }
+      )
+    }
+  );
+};
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -14321,8 +14418,6 @@ const createStoreImpl = (createState) => {
   return api;
 };
 const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
-var reactExports = requireReact();
-const React = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
 const identity = (arg) => arg;
 function useStore(api, selector = identity) {
   const slice = React.useSyncExternalStore(
@@ -14340,19 +14435,48 @@ const createImpl = (createState) => {
   return useBoundStore;
 };
 const create = ((createState) => createState ? createImpl(createState) : createImpl);
-function createNeoscopeStore(initialState, actions) {
+function createNeoscopeStore(initialState, options) {
+  const actions = options?.actions ?? (() => ({}));
   const store2 = create((set) => ({
     ...initialState,
-    ...actions(set)
+    ...actions(
+      set
+    )
   }));
   store2.initialState = () => initialState;
+  store2.serializers = options?.serializers ?? {};
+  store2.deserializers = options?.deserializers ?? {};
   return store2;
 }
-function createNeoscopeRenderer(render, store2) {
+function createNeoscopeRenderer(render, store2, opts) {
+  const renderInContainer = () => /* @__PURE__ */ jsxRuntimeExports.jsx(NeoscopeWidgetContainer, { opts, children: render() });
   return {
-    anywidget: () => createAnywidgetRenderer(render, store2),
-    streamlit: () => createStreamlitRenderer(render, store2)
+    anywidget: () => createAnywidgetRenderer(renderInContainer, store2),
+    streamlit: () => createStreamlitRenderer(renderInContainer, store2)
   }["anywidget"]();
+}
+function NeoscopeWidgetContainer({ opts, children }) {
+  let style = {};
+  let className = "neoscope-widget";
+  if (opts?.maximizableHeight) className += " maximizable-height";
+  let resizeHandle = null;
+  const [height, setHeight] = React.useState(opts?.resizeableHeight ?? 0);
+  if (opts?.resizeableHeight) {
+    className += " resizable-height";
+    resizeHandle = /* @__PURE__ */ jsxRuntimeExports.jsx(
+      ResizeHeightHandle,
+      {
+        defaultHeight: opts.resizeableHeight,
+        onHeightChange: setHeight,
+        className: "widget-height-handle"
+      }
+    );
+    style["--widget-height"] = `${height}px`;
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className, style, children: [
+    children,
+    resizeHandle
+  ] });
 }
 const _Point = class _Point {
   constructor(y = 0, x = 0) {
@@ -14448,6 +14572,9 @@ const _Point = class _Point {
 };
 _Point.ORIGIN = Object.freeze(new _Point(0, 0));
 let Point = _Point;
+function asPoint(p) {
+  return new Point(p.y, p.x);
+}
 const ORIGIN = Point.ORIGIN;
 const _Rect = class _Rect {
   constructor(p1, p2) {
@@ -14877,7 +15004,7 @@ function useZoomTransform(sceneDomain, maxScale, sceneOuterRect) {
   const controllerRef = reactExports.useRef(null);
   if (controllerRef.current === null) {
     controllerRef.current = new ZoomAreaController(
-      new ZoomAreaInternalState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
+      new ZoomAreaState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
       redraw
     );
   }
@@ -15174,7 +15301,7 @@ class ZoomAreaCalculator {
     }
   }
 }
-class ZoomAreaInternalState {
+class ZoomAreaState {
   constructor(zoomArea) {
     this.zoomArea = zoomArea;
     this._t = { center: new Point(0.5, 0.5), zoom: 0, coord: "relative" };
@@ -15253,16 +15380,29 @@ class ZoomAreaInternalState {
   }
 }
 class ZoomAreaController {
-  // Reference to the HTML element representing the zoom area
+  // Handle for requestAnimationFrame to limit redraw frequency
   constructor(state, redrawZoomArea) {
     this.state = state;
     this.redrawZoomArea = redrawZoomArea;
     this._areaNode = null;
+    this._redrawHandle = null;
+  }
+  redraw(limitedFrequency = true) {
+    if (limitedFrequency) {
+      if (!this._redrawHandle) {
+        this._redrawHandle = requestAnimationFrame(() => {
+          this._redrawHandle = null;
+          this.redrawZoomArea?.();
+        });
+      }
+    } else {
+      this.redrawZoomArea?.();
+    }
   }
   _setTransform(t, redraw_on_change = true, assume_different = false) {
     if (!assume_different && isSameTransform(t, this.state.transform)) return false;
     this.state.transform = t;
-    if (redraw_on_change) this.redrawZoomArea?.();
+    if (redraw_on_change) this.redraw(false);
     return true;
   }
   // === Area Properties ===
@@ -15271,7 +15411,7 @@ class ZoomAreaController {
     const newT = this.state.zoomArea.constraintTransform(t);
     if (isSameTransform(t, newT)) return false;
     this.state.transform = newT;
-    if (redraw_on_change) this.redrawZoomArea?.();
+    if (redraw_on_change) this.redraw(false);
     return true;
   }
   setAreaProperties(sceneDomain, maxScale, sceneOuterRect, redraw_on_change = true) {
@@ -15296,7 +15436,7 @@ class ZoomAreaController {
   setClientRect(clientRect, redraw_on_change = true) {
     if (this.state.zoomArea.setClientRect(clientRect)) {
       this.state.setTransform(this.state.transform, true);
-      if (redraw_on_change) this.redrawZoomArea?.();
+      if (redraw_on_change) this.redraw();
     }
   }
   // === Animations ===
@@ -15431,10 +15571,10 @@ class ZoomAreaController {
     else this._setTransform(nextTr);
   }
   panHorizontallyBy(delta, coord = "view", anim) {
-    this.panBy(new Point(delta, 0), coord, anim);
+    this.panBy(new Point(0, delta), coord, anim);
   }
   panVerticallyBy(delta, coord = "view", anim) {
-    this.panBy(new Point(0, delta), coord, anim);
+    this.panBy(new Point(delta, 0), coord, anim);
   }
   setVisibleRect(visibleRect, coord = "scene", anim) {
     if (visibleRect.isEmpty()) return;
@@ -15446,6 +15586,15 @@ class ZoomAreaController {
   }
 }
 function parseImageString(imageString) {
+  if (typeof imageString === "object" && "height" in imageString && "width" in imageString && "data" in imageString) {
+    return imageString;
+  } else if (imageString instanceof DataView) {
+    const decoder = new TextDecoder();
+    imageString = decoder.decode(imageString);
+  } else if (typeof imageString !== "string") {
+    console.error("Invalid imageString type:", typeof imageString, imageString);
+    throw new Error("Invalid imageString type. Expected string or DataView.");
+  }
   const headerIndex = imageString.indexOf("|");
   const header = imageString.slice(0, headerIndex);
   const [height, width, ext] = header.split(",").map((s) => isNaN(Number(s)) ? s : Number(s));
@@ -15641,8 +15790,8 @@ function RulerAxis(props) {
   const rangeMax = center + axisRange / 2;
   const highlightMin = highlightArea?.start;
   const highlightMax = highlightArea?.end;
-  const cursorPos = props.cursorPos?.() ?? null;
-  if (cursorPos !== null) {
+  const cursorPos = typeof props.cursorPos === "function" ? props.cursorPos() : props.cursorPos;
+  if (cursorPos != null) {
     const cursorTickPos = (cursorPos - rangeMin + 0.5) * scale;
     cursorTick = /* @__PURE__ */ jsxRuntimeExports.jsxs("g", { transform: translateAlong(cursorTickPos, hor), className: "cursorTick", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -16170,29 +16319,63 @@ function createSceneWheelEvent(ev, zoomAreaState) {
     deltaY
   };
 }
+function CursorOverlay(props) {
+  let relCursorPos = typeof props.cursorPos === "function" ? props.cursorPos() : props.cursorPos;
+  const cursorPos = relCursorPos != null ? props.transform.scene2view(asPoint(relCursorPos)) : null;
+  const svgStyle = {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: "100%",
+    height: "100%"
+  };
+  const cursor = cursorPos != null ? /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: cursorPos.x, y: cursorPos.y, width: 3, height: 3, fill: "white", stroke: "grey", strokeWidth: 1 }) : null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { style: svgStyle, children: cursor }) });
+}
+function createInstanciatedStore(storeName, initializer) {
+  const globalObj = globalThis;
+  const STORE_KEY = /* @__PURE__ */ Symbol.for("neoscope.shared_stores." + storeName);
+  if (!globalObj[STORE_KEY]) {
+    globalObj[STORE_KEY] = {};
+  }
+  const stores = globalObj[STORE_KEY];
+  const getVanillaStore = (instance) => {
+    let store2 = stores[instance];
+    if (!store2) {
+      store2 = createStore(initializer);
+      stores[instance] = store2;
+    }
+    return store2;
+  };
+  function useInstanciatedStore(instance, selector = (state) => state) {
+    const store2 = getVanillaStore(instance);
+    return useStore(store2, selector);
+  }
+  useInstanciatedStore.getStore = getVanillaStore;
+  useInstanciatedStore.getState = (instance) => getVanillaStore(instance).getState();
+  return useInstanciatedStore;
+}
 const _defaults = {
-  image: ""
+  image: { width: 0, height: 0, data: "" }
 };
-const store = createNeoscopeStore(_defaults, (set) => ({}));
-const cursorStore = create((set) => ({
+const store = createNeoscopeStore(_defaults, {
+  deserializers: {
+    image: (bytes) => {
+      console.log("deserializing image");
+      return parseImageString(bytes);
+    }
+  }
+});
+const useCursorStore = createInstanciatedStore("ImageViewer.cursor", (set) => ({
   cursorPos: null,
   setCursorPos: (pos) => set({ cursorPos: pos })
 }));
 const ImageViewer = () => {
   const { image } = store();
-  const { height, width, data } = parseImageString(image);
+  const { height, width, data } = image;
   const domain = new Rect(new Point(height, width));
   const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
-  useSceneMouseEventListener(zoomController, void 0, cursorStore.getState().setCursorPos);
-  const rulerProps = {
-    thickness: 15,
-    scale: () => zoomState.scale
-  };
-  const widgetStyle = {
-    display: "grid",
-    gridTemplateColumns: `${rulerProps.thickness}px auto`,
-    gridTemplateRows: `${rulerProps.thickness}px auto`
-  };
+  useSceneMouseEventListener(zoomController, void 0, useCursorStore.getState(0).setCursorPos);
   const t = zoomState;
   const sceneSize = t.sceneDomain.size.multiply(zoomState.scale);
   const viewTopLeft = t.zoomArea.viewSize.half().subtract(t.center.subtract(t.sceneDomain.topLeft).multiply(t.scale));
@@ -16203,16 +16386,23 @@ const ImageViewer = () => {
     left: `${viewTopLeft.x}px`,
     top: `${viewTopLeft.y}px`
   };
+  const rulerProps = {
+    thickness: 15,
+    scale: () => zoomState.scale
+  };
+  const widgetStyle = {
+    display: "grid",
+    gridTemplateColumns: `${rulerProps.thickness}px 1fr`,
+    gridTemplateRows: `${rulerProps.thickness}px 1fr`
+  };
   const topRuler = /* @__PURE__ */ jsxRuntimeExports.jsx(
     RulerAxis,
     {
       orientation: "horizontal",
       center: () => t.center.x,
-      cursorPos: () => {
-        return cursorStore((state) => state.cursorPos?.x || null);
-      },
-      onPanCenter: zoomController.panHorizontallyBy,
-      onSetCenter: zoomController.setCenterX,
+      cursorPos: () => useCursorStore(0, (state) => state.cursorPos?.x || null),
+      onPanCenter: (delta) => zoomController.panHorizontallyBy(delta),
+      onSetCenter: (x) => zoomController.setCenterX(x),
       axisInterval: { start: zoomState.sceneDomain.left, end: zoomState.sceneDomain.right },
       style: { gridRow: 1, gridColumn: 2 },
       ...rulerProps
@@ -16223,11 +16413,9 @@ const ImageViewer = () => {
     {
       orientation: "vertical",
       center: () => t.center.y,
-      cursorPos: () => {
-        return cursorStore((state) => state.cursorPos?.y || null);
-      },
-      onPanCenter: zoomController.panVerticallyBy,
-      onSetCenter: zoomController.setCenterY,
+      cursorPos: () => useCursorStore(0, (state) => state.cursorPos?.y || null),
+      onPanCenter: (delta) => zoomController.panVerticallyBy(delta),
+      onSetCenter: (y) => zoomController.setCenterY(y),
       axisInterval: { start: zoomState.sceneDomain.top, end: zoomState.sceneDomain.bottom },
       style: { gridRow: 2, gridColumn: 1 },
       ...rulerProps
@@ -16237,16 +16425,37 @@ const ImageViewer = () => {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ImageViewerWidget", style: widgetStyle, children: [
     topRuler,
     leftRuler,
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref, style: { gridRow: 2, gridColumn: 2, cursor: "crosshair" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ImageViewport", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: sceneTransform, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "img",
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
       {
-        src: data,
-        style: { width: "100%", height: "100%", imageRendering: pixelSize < 7 ? "auto" : "pixelated" }
+        ref,
+        className: "ImageViewportContainer",
+        style: { gridRow: 2, gridColumn: 2, cursor: "crosshair" },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ImageViewport", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: sceneTransform, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "img",
+            {
+              src: data,
+              style: { width: "100%", height: "100%", imageRendering: pixelSize < 7 ? "auto" : "pixelated" }
+            }
+          ) }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            CursorOverlay,
+            {
+              sceneDomain: zoomState.sceneDomain,
+              cursorPos: () => useCursorStore(0, (state) => state.cursorPos || null),
+              transform: zoomState
+            }
+          )
+        ]
       }
-    ) }) }) })
+    )
   ] });
 };
-const ImageViewer_default = createNeoscopeRenderer(() => /* @__PURE__ */ jsxRuntimeExports.jsx(ImageViewer, {}), store);
+const ImageViewer_default = createNeoscopeRenderer(() => /* @__PURE__ */ jsxRuntimeExports.jsx(ImageViewer, {}), store, {
+  maximizableHeight: true,
+  resizeableHeight: 400
+});
 export {
   ImageViewer_default as default
 };

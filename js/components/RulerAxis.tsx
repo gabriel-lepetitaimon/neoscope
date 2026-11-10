@@ -1,9 +1,10 @@
 import React, { useMemo, useRef, useState } from "react";
 import useSize from "../utils/size-context";
-import "../css/RulerAxis.css";
 import { useEventListener, captureMouseEvents } from "../utils/event-listener";
 import { inInterval, Interval, linspace, optiLog10Step, validNumber } from "../utils/math";
 import { Point, Rect } from "../utils/geometry";
+
+import "../css/RulerAxis.css";
 
 interface AxisRulerProps {
   orientation: "horizontal" | "vertical";
@@ -11,7 +12,7 @@ interface AxisRulerProps {
   center?: () => number;
   onPanCenter?: (delta: number) => void;
   onSetCenter?: (center: number) => void;
-  cursorPos?: () => number | null;
+  cursorPos?: (() => number | null) | number | null;
   scale: () => number;
   axisInterval: Interval;
   style?: React.CSSProperties;
@@ -53,9 +54,9 @@ export default function RulerAxis(props: AxisRulerProps) {
   const highlightMin = highlightArea?.start;
   const highlightMax = highlightArea?.end;
 
-  const cursorPos = props.cursorPos?.() ?? null;
+  const cursorPos = typeof props.cursorPos === "function" ? props.cursorPos() : props.cursorPos;
 
-  if (cursorPos !== null) {
+  if (cursorPos != null) {
     const cursorTickPos = (cursorPos - rangeMin + 0.5) * scale;
     cursorTick = (
       <g transform={translateAlong(cursorTickPos, hor)} className={"cursorTick"}>

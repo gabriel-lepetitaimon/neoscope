@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Point } from "./geometry";
-import { ZoomAreaController, ZoomAreaInternalState } from "./zoom-area-controller";
+import { ZoomAreaController, ZoomAreaState } from "./zoom-area-controller";
 
 export interface MouseEventsListener {
   onMouseDown?: (ev: SceneMouseEvent, ctrls: ZoomControls) => void;
@@ -252,7 +252,7 @@ export interface SceneMouseEvent extends BaseMouseEvent {
   movementView: Point;
 }
 
-function createSceneMouseEvent(ev: MouseEvent, zoomAreaState: ZoomAreaInternalState): SceneMouseEvent {
+function createSceneMouseEvent(ev: MouseEvent, zoomAreaState: ZoomAreaState): SceneMouseEvent {
   const viewCursor = zoomAreaState.client2view(new Point(ev.y, ev.x));
   const sceneEv = {
     ...createBaseMouseEvent(ev),
@@ -271,7 +271,7 @@ export interface SceneWheelEvent extends BaseMouseEvent {
   deltaY: number;
 }
 
-function createSceneWheelEvent(ev: WheelEvent, zoomAreaState: ZoomAreaInternalState): SceneWheelEvent {
+function createSceneWheelEvent(ev: WheelEvent, zoomAreaState: ZoomAreaState): SceneWheelEvent {
   let { deltaX, deltaY } = ev;
   // Normalize deltaX, deltaY across browsers
   switch (ev.deltaMode) {

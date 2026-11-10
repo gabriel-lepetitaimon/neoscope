@@ -10,6 +10,7 @@
   --neoscope-shadow-color: #000;
 
   color: var(--neoscope-foreground-color);
+  height: var(--widget-height);
 }
 
 .neoscope-widget text{

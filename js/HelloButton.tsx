@@ -1,23 +1,19 @@
 import * as React from "react";
-import "./widget.css";
-import { createNeoscopeRenderer, createNeoscopeStore } from "./framework-glue/neoscope";
+import { createNeoscopeRenderer, createNeoscopeStore } from "./framework-glue/base";
+
+import "./css/HelloButton.css";
 
 const _defaults = {
   value: 0,
 };
-type HelloButtonModel = typeof _defaults;
 
-interface HelloButtonActions {
-  inc: () => void;
-}
-
-const store = createNeoscopeStore<HelloButtonModel, HelloButtonActions>(_defaults, (set) => ({
-  inc() {
-    set((state) => {
-      return { value: state.value + 1 };
-    });
-  },
-}));
+const store = createNeoscopeStore(_defaults, {
+  actions: (set) => ({
+    inc() {
+      set((state) => ({ value: state.value + 1 }));
+    },
+  }),
+});
 
 const HelloButton = () => {
   const { value, inc } = store();

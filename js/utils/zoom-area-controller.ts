@@ -6,7 +6,7 @@ export function useZoomTransform(
   sceneDomain: Rect,
   maxScale: number,
   sceneOuterRect?: Rect,
-): [ZoomAreaInternalState, ZoomAreaController, (node: HTMLElement | null) => void] {
+): [ZoomAreaState, ZoomAreaController, (node: HTMLElement | null) => void] {
   // === INITIALIZE STATE AND CONTROLLER ===
   // Trigger to manually redraw the area
   const [, redraw] = useReducer((c) => c + 1, 0);
@@ -15,7 +15,7 @@ export function useZoomTransform(
   if (controllerRef.current === null) {
     // Initialize the controller only once
     controllerRef.current = new ZoomAreaController(
-      new ZoomAreaInternalState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
+      new ZoomAreaState(new ZoomAreaCalculator(sceneDomain, maxScale, sceneOuterRect)),
       redraw,
     );
   }
@@ -431,7 +431,7 @@ class ZoomAreaCalculator {
  * This class is used internally by ZoomAreaController to keep track of the current transform and scale.
  * It also provides methods to convert between different coordinate systems.
  */
-export class ZoomAreaInternalState {
+export class ZoomAreaState {
   protected _t: Transform = { center: new Point(0.5, 0.5), zoom: 0, coord: "relative" }; // Cache of last known transform
   protected _scale: number = 1; // Cache of last known scale factor
   public animator: Animator<"center" | "zoom">;
@@ -564,16 +564,31 @@ interface ZoomAnimOpts {
  */
 export class ZoomAreaController {
   protected _areaNode: HTMLElement | null = null; // Reference to the HTML element representing the zoom area
+  protected _redrawHandle: number | null = null; // Handle for requestAnimationFrame to limit redraw frequency
 
   constructor(
-    public state: ZoomAreaInternalState,
+    public state: ZoomAreaState,
     protected redrawZoomArea?: () => void,
   ) {}
+
+  protected redraw(limitedFrequency: boolean = true): void {
+    if (limitedFrequency) {
+      // Redraw with limited frequency to avoid performance issues during rapid resize events
+      if (!this._redrawHandle) {
+        this._redrawHandle = requestAnimationFrame(() => {
+          this._redrawHandle = null;
+          this.redrawZoomArea?.();
+        });
+      }
+    } else {
+      this.redrawZoomArea?.();
+    }
+  }
 
   protected _setTransform(t: Transform, redraw_on_change: boolean = true, assume_different: boolean = false): boolean {
     if (!assume_different && isSameTransform(t, this.state.transform)) return false;
     this.state.transform = t;
-    if (redraw_on_change) this.redrawZoomArea?.();
+    if (redraw_on_change) this.redraw(false);
 
     return true;
   }
@@ -586,7 +601,7 @@ export class ZoomAreaController {
     if (isSameTransform(t, newT)) return false;
 
     this.state.transform = newT;
-    if (redraw_on_change) this.redrawZoomArea?.();
+    if (redraw_on_change) this.redraw(false);
 
     return true;
   }
@@ -622,7 +637,7 @@ export class ZoomAreaController {
   setClientRect(clientRect: Rect, redraw_on_change: boolean = true): void {
     if (this.state.zoomArea.setClientRect(clientRect)) {
       this.state.setTransform(this.state.transform, true);
-      if (redraw_on_change) this.redrawZoomArea?.();
+      if (redraw_on_change) this.redraw();
     }
   }
 
@@ -802,11 +817,11 @@ export class ZoomAreaController {
   }
 
   panHorizontallyBy(delta: number, coord: Coord = "view", anim?: ZoomAnimOpts) {
-    this.panBy(new Point(delta, 0), coord, anim);
+    this.panBy(new Point(0, delta), coord, anim);
   }
 
   panVerticallyBy(delta: number, coord: Coord = "view", anim?: ZoomAnimOpts) {
-    this.panBy(new Point(0, delta), coord, anim);
+    this.panBy(new Point(delta, 0), coord, anim);
   }
 
   setVisibleRect(visibleRect: Rect, coord: Coord = "scene", anim?: ZoomAnimOpts) {
