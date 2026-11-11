@@ -46,10 +46,7 @@ export function createStreamlitRenderer<Model extends Record<string, any>>(
     const modelKeys = Object.keys(store.initialState()) as (keyof Model)[];
     instance.unsubscribe = store.subscribe((state) => {
       modelKeys.forEach((key) => {
-        if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) {
-          console.log("Sending update:", key, "\n\told:", data[key], "\n\tnew:", state[key]);
-          setStateValue(key, state[key]);
-        }
+        if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) setStateValue(key, state[key]);
       });
     });
 
@@ -61,7 +58,6 @@ export function createStreamlitRenderer<Model extends Record<string, any>>(
       if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
       new_state[key as keyof Model] = key_data;
     }
-    console.log("Received update:", new_state);
     store.setState(new_state);
 
     // Render the React component with the appropriate store

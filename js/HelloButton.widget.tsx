@@ -1,10 +1,13 @@
 import * as React from "react";
-import { createNeoscopeRenderer, createNeoscopeStore } from "./framework-glue/base";
+import { createNeoscopeRenderer, createNeoscopeStore, field } from "./framework-glue/base";
 
 import "./css/HelloButton.css";
 
+/*************************************************************************
+ *  === ImageViewer MODEL ===
+ *************************************************************************/
 const Model = {
-  value: 0,
+  value: field(0),
 };
 
 interface Events {
@@ -19,6 +22,9 @@ const [createHelloStore, useHelloStore] = createNeoscopeStore<Events>()(Model, {
   }),
 });
 
+/*************************************************************************
+ *  === ImageViewer COMPONENT ===
+ *************************************************************************/
 const HelloButton = () => {
   const { value, inc, click } = useHelloStore();
   function handleClick() {

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { Render } from "@anywidget/types";
-import { NeoscopeStore, NeoscopeStoreFactory } from "./neoscopeStore";
+import { NeoscopeStore, NeoscopeStoreFactory, serializeNode, applyUpdates, computeStateDiff } from "./neoscopeStore";
 
 interface NeoscopeAnyWidgetModel {
   _frontend_data: Record<string, any>;
@@ -24,88 +24,84 @@ export function createAnywidgetRenderer<Model extends Record<string, any>>(
 
     // Listen to changes from the React store and update the Python model accordingly
     let currentVersion: number = -1;
-    let isUpdatingFromFrontend = false;
-    let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-    let hasChangeDuringTimeout = false;
+    let lastSyncedState = store.getState();
 
-    const modelKeys = Object.keys(store.initialState()) as (keyof Model)[];
-    const unsubscribeStore = store.subscribe((state) => {
-      const currentData = model.get("_frontend_data") ?? {};
-      const modelState: Record<string, any> = {};
-      let hasChanged = false;
+    // Debounce mechanism to avoid sending too many updates in a short time
+    let sendTimeout: ReturnType<typeof setTimeout> | null = null;
+    let pendingPatch: Record<string, any> = {};
 
-      for (const key of modelKeys) {
-        const val = state[key];
-        modelState[key as string] = val;
-        if (JSON.stringify(val) !== JSON.stringify(currentData[key as string])) {
-          hasChanged = true;
-          break; // Exit early if any change is detected
-        }
-      }
-      if (!hasChanged) return;
-
-      // Incrémentation de la version locale
+    function sendPendingPatch() {
+      if (Object.keys(pendingPatch).length === 0) return;
       currentVersion += 1;
-      modelState.__version__ = currentVersion;
+      model.send({ patch: pendingPatch, __version__: currentVersion });
+      pendingPatch = {};
+    }
 
-      isUpdatingFromFrontend = true;
-      try {
-        model.set("_frontend_data", modelState);
-      } finally {
-        isUpdatingFromFrontend = false;
+    function updateLocalSnapshot(state: any) {
+      // Update the local snapshot of the frontend state so it may be saved with the notebook
+      // but don't call save_changes() to avoid triggering a full sync with Python.
+      const fullSnapshot = serializeNode({ __kind: "submodel", schema: store.schema }, state);
+      fullSnapshot.__version__ = currentVersion;
+      model.set("_frontend_data", fullSnapshot);
+    }
+
+    // 1. Initialize the store with the traitlet's _frontend_data
+    const initialData = model.get("_frontend_data");
+    if (initialData) {
+      currentVersion = initialData.__version__ ?? 0;
+      const { nextState, hasChanges } = applyUpdates(store.schema, store.getState(), initialData);
+      if (hasChanges) {
+        lastSyncedState = nextState;
+        store.setState(nextState);
       }
+    }
 
-      // Debounce de l'envoi réseau vers Python
-      if (!saveTimeout) {
-        model.save_changes();
-        saveTimeout = setTimeout(() => {
-          if (hasChangeDuringTimeout) model.save_changes();
-          hasChangeDuringTimeout = false;
-          saveTimeout = null;
+    // 2. Frontend (Zustand) -> Python (Partial udpate)
+    const unsubscribeStore = store.subscribe((state) => {
+      const diff = computeStateDiff(store.schema, lastSyncedState, state);
+      lastSyncedState = state;
+
+      if (Object.keys(diff).length === 0) return;
+
+      // Accumule les changements dans le patch en attente
+      Object.assign(pendingPatch, diff);
+      updateLocalSnapshot(state);
+
+      if (!sendTimeout) {
+        sendPendingPatch();
+        sendTimeout = setTimeout(() => {
+          sendPendingPatch();
+          sendTimeout = null;
         }, debounceMs);
-      } else {
-        hasChangeDuringTimeout = true;
       }
     });
 
-    // Listen to changes from the Python model and update the React store accordingly
-    function onPythonModelChange() {
-      if (isUpdatingFromFrontend) return;
+    /// 3. Python -> Frontend (Réception des messages custom)
+    function onCustomMessage(msg: any) {
+      if (!msg || typeof msg !== "object" || !msg.patch) return;
 
-      const data = model.get("_frontend_data");
-      if (!data) return;
-
-      const incomingVersion = data.__version__ ?? 0;
+      const incomingVersion = msg.__version__ ?? 0;
       if (incomingVersion <= currentVersion) return;
       currentVersion = incomingVersion;
 
-      const currentState = store.getState();
-      let new_state: Partial<Model> = {};
-      let hasChanges = false;
-
-      for (const key of Object.keys(data)) {
-        if (!(key in store.initialState())) continue;
-        let key_data = data[key];
-        if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
-
-        if (currentState[key as keyof Model] !== key_data) {
-          new_state[key as keyof Model] = key_data;
-          hasChanges = true;
-        }
+      const { nextState, hasChanges } = applyUpdates(store.schema, store.getState(), msg.patch);
+      if (hasChanges) {
+        lastSyncedState = nextState;
+        store.setState(nextState);
+        updateLocalSnapshot(nextState);
       }
-      if (!hasChanges) return;
-
-      store.setState(new_state);
     }
 
-    model.on("change:_frontend_data", onPythonModelChange);
-    onPythonModelChange(); // Populate the store with the initial state from the Python model
+    model.on("msg:custom", onCustomMessage);
     root.render(render(store)); // Render the React component with the appropriate store
 
     return () => {
-      if (saveTimeout) clearTimeout(saveTimeout);
+      if (sendTimeout) {
+        clearTimeout(sendTimeout);
+        sendPendingPatch();
+      }
       unsubscribeStore();
-      model.off("change:_frontend_data", onPythonModelChange);
+      model.off("change:_frontend_data", onCustomMessage);
       root.unmount();
     };
   };

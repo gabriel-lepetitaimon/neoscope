@@ -167,13 +167,15 @@ class _ImageLikePydanticAnnotation:
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type, handler) -> core_schema.CoreSchema:
         # We use an 'any' schema to swallow the input safely, and pass it downstream to _validate_image_field
+        if source_type is not None and not issubclass(source_type, (str, Path, np.ndarray)):
+            raise TypeError(f"Invalid source type for ImageField: {source_type}. Must be str, Path, or np.ndarray.")
         return core_schema.chain_schema([core_schema.any_schema()])
 
 
-type ImageLikeField = Annotated[
-    str | Path | np.ndarray,
+type ImageField = Annotated[
+    np.ndarray,
     _ImageLikePydanticAnnotation,
-    BeforeValidator(_validate_image_field),
+    BeforeValidator(_validate_image_field, json_schema_input_type=str),
     PlainSerializer(_serialize_image_field, return_type=str),
     WithJsonSchema({"type": "string", "format": "data-url"}),
 ]

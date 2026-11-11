@@ -13,8 +13,12 @@ requires-python = ">=3.12"
 authors = [
     { name = "Gabriel Lepetit-Aimon", email = "gabriel.lepetitaimon@gmail.com" },
 ]
-dependencies = ["anywidget", "streamlit >= 1.51"]
+dependencies = ["pydantic", "webcolors"]
 
+[dependency-groups]
+anywidget = ["anywidget"]
+streamlit = ["streamlit"]
+dev = ["nodeenv"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

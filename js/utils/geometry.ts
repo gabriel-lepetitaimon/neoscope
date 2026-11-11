@@ -185,6 +185,10 @@ export class Rect {
     return new Rect(new Point(y, x), new Point(y + h, x + w));
   }
 
+  toTuple(): number[] {
+    return [this.height, this.width, this.top, this.left];
+  }
+
   static fromCenter(center: Point, size: Point): Rect {
     const halfSize = size.divide(2).abs();
     return new Rect(center.subtract(halfSize), center.add(halfSize));

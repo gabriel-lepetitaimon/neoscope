@@ -5,8 +5,8 @@ import { NeoscopeStore, NeoscopeStoreContext, NeoscopeStoreFactory } from "./neo
 import "__FRAMEWORK_CSS__";
 import { ResizeHeightHandle } from "../components/resizable";
 
-export type { NeoscopeStore, NeoscopeStoreFactory } from "./neoscopeStore";
-export { createNeoscopeStore } from "./neoscopeStore";
+export type { NeoscopeStore, NeoscopeStoreFactory, UseModelSchema, InferModel } from "./neoscopeStore";
+export { createNeoscopeStore, field } from "./neoscopeStore";
 
 export interface WidgetRendererOpts {
   maximizableHeight?: boolean;

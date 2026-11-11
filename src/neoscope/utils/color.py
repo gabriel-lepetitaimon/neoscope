@@ -1,19 +1,22 @@
 import textwrap
-from typing import Literal, TypeAlias
+from typing import Annotated, Literal
 
 import numpy as np
+import pydantic
+from pydantic import BeforeValidator, PlainSerializer, WithJsonSchema
+from pydantic_core import PydanticSerializationError, core_schema
 
-UInt8TripletOrQuad: TypeAlias = np.ndarray[tuple[Literal[3, 4]], np.dtype[np.uint8]]
-RGBColorSpec: TypeAlias = (
+type UInt8TripletOrQuad = np.ndarray[tuple[Literal[3, 4]], np.dtype[np.uint8]]
+type RGBColorSpec = (
     tuple[int, int, int] | tuple[float, float, float] | np.ndarray[tuple[Literal[3]], np.dtype[np.number]]
 )
-RGBAColorSpec: TypeAlias = (
+type RGBAColorSpec = (
     tuple[int, int, int, int] | tuple[float, float, float, float] | np.ndarray[tuple[Literal[4]], np.dtype[np.number]]
 )
-ColorLike: TypeAlias = RGBColorSpec | RGBAColorSpec | str
+type ColorLike = RGBColorSpec | RGBAColorSpec | str
 
 
-class Color(UInt8TripletOrQuad):
+class Color(np.ndarray[tuple[Literal[3, 4]], np.dtype[np.uint8]]):
     """A utility class for handling colors in various formats (RGB, HEX, etc.) and converting between them."""
 
     def __new__(cls, color: ColorLike):
@@ -75,3 +78,31 @@ class Color(UInt8TripletOrQuad):
             return np.clip(arr, 0, 255).astype(np.uint8)
         else:
             raise TypeError(f"Invalid color specification: {color}")
+
+    @classmethod
+    def serialize(cls, color: ColorLike) -> str:
+        """Serialize a Color instance to a HEX string."""
+        if isinstance(color, cls):
+            return color.to_hex()
+        else:
+            return cls.parse(color).view(cls).to_hex()
+
+
+class _ColorLikePydanticAnnotation:
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler) -> core_schema.CoreSchema:
+        # We use an 'any' schema to swallow the input safely, and pass it downstream to _validate_image_field
+        if source_type is not None and not issubclass(source_type, (str, tuple, np.ndarray)):
+            raise TypeError(f"Invalid source type for ColorField: {source_type}. Must be str, tuple, or np.ndarray.")
+        return core_schema.chain_schema([core_schema.any_schema()])
+
+
+type ColorField = Annotated[
+    Color,
+    _ColorLikePydanticAnnotation,
+    BeforeValidator(Color.parse, json_schema_input_type=ColorLike),
+    PlainSerializer(Color.serialize, return_type=str),
+    WithJsonSchema({"type": "string"}),
+]
+
+########################################################################################################################

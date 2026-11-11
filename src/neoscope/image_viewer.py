@@ -1,11 +1,11 @@
 from .base import BaseWidgetModel, event
-from .utils.image import ImageLikeField
+from .utils.image import ImageField
 
 
 class ImageViewer(BaseWidgetModel, widget="ImageViewer"):
     """Model for the ImageViewer widget."""
 
-    image: ImageLikeField
+    image: ImageField
 
     @event("click")
     def on_click(self, y: int, x: int) -> None:

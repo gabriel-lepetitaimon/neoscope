@@ -37,7 +37,7 @@ export default defineConfig(() => {
       emptyOutDir: false,
       lib: {
         entry: {
-          [inputFile]: `js/${inputFile}.tsx`,
+          [inputFile]: `js/${inputFile}.widget.tsx`,
         },
         formats: ["es"],
       },

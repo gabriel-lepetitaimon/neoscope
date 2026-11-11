@@ -104,10 +104,7 @@ def event_subscribe(
 class BaseModel(pydantic.BaseModel):
     """A base model that watches for changes in its fields and triggers a callback."""
 
-    model_config = pydantic.ConfigDict(
-        validate_assignment=True,
-        ignored_types=(EventSubscribeDescriptor,),
-    )
+    model_config = pydantic.ConfigDict(validate_assignment=True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -142,6 +139,8 @@ class BaseModel(pydantic.BaseModel):
 
 
 class BaseWidgetModel(BaseModel):
+    model_config = pydantic.ConfigDict(ignored_types=(EventSubscribeDescriptor,))
+
     def __init_subclass__(cls, widget: str, **kwargs):
         super().__init_subclass__(**kwargs)
         if not hasattr(cls, _WIDGET_KEY):

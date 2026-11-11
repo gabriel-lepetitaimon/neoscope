@@ -14236,141 +14236,6 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
-function createAnywidgetRenderer(render, createStore2, debounceMs = 50) {
-  const renderHook = ({ model, el }) => {
-    function sendEvent(eventName, args) {
-      console.log("Sending event to Python:", { event: { type: eventName, args } });
-      model.send({ event: { type: eventName, args } });
-    }
-    const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
-    const root = clientExports.createRoot(el);
-    el.classList.add("neoscope-widget-root");
-    let currentVersion = -1;
-    let isUpdatingFromFrontend = false;
-    let saveTimeout = null;
-    let hasChangeDuringTimeout = false;
-    const modelKeys = Object.keys(store.initialState());
-    const unsubscribeStore = store.subscribe((state) => {
-      const currentData = model.get("_frontend_data") ?? {};
-      const modelState = {};
-      let hasChanged = false;
-      for (const key of modelKeys) {
-        const val = state[key];
-        modelState[key] = val;
-        if (JSON.stringify(val) !== JSON.stringify(currentData[key])) {
-          hasChanged = true;
-          break;
-        }
-      }
-      if (!hasChanged) return;
-      currentVersion += 1;
-      modelState.__version__ = currentVersion;
-      isUpdatingFromFrontend = true;
-      try {
-        model.set("_frontend_data", modelState);
-      } finally {
-        isUpdatingFromFrontend = false;
-      }
-      if (!saveTimeout) {
-        model.save_changes();
-        saveTimeout = setTimeout(() => {
-          if (hasChangeDuringTimeout) model.save_changes();
-          hasChangeDuringTimeout = false;
-          saveTimeout = null;
-        }, debounceMs);
-      } else {
-        hasChangeDuringTimeout = true;
-      }
-    });
-    function onPythonModelChange() {
-      if (isUpdatingFromFrontend) return;
-      const data = model.get("_frontend_data");
-      if (!data) return;
-      const incomingVersion = data.__version__ ?? 0;
-      if (incomingVersion <= currentVersion) return;
-      currentVersion = incomingVersion;
-      const currentState = store.getState();
-      let new_state = {};
-      let hasChanges = false;
-      for (const key of Object.keys(data)) {
-        if (!(key in store.initialState())) continue;
-        let key_data = data[key];
-        if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
-        if (currentState[key] !== key_data) {
-          new_state[key] = key_data;
-          hasChanges = true;
-        }
-      }
-      if (!hasChanges) return;
-      console.log("Updating React store from Python model:", new_state);
-      store.setState(new_state);
-    }
-    model.on("change:_frontend_data", onPythonModelChange);
-    onPythonModelChange();
-    root.render(render(store));
-    return () => {
-      if (saveTimeout) clearTimeout(saveTimeout);
-      unsubscribeStore();
-      model.off("change:_frontend_data", onPythonModelChange);
-      root.unmount();
-    };
-  };
-  return { render: renderHook };
-}
-const instances = /* @__PURE__ */ new WeakMap();
-function createStreamlitRenderer(render, createStore2) {
-  const renderHook = (args) => {
-    const { data, parentElement, setStateValue, setTriggerValue } = args;
-    const rootElement = parentElement.querySelector(".react-root");
-    if (!rootElement) {
-      throw new Error("Unexpected: React root element not found");
-    }
-    let instance = instances.get(parentElement);
-    if (!instance) {
-      const newInstance = {
-        root: clientExports.createRoot(rootElement),
-        setTriggerValue,
-        store: createStore2((eventName, eventArgs) => {
-          newInstance.setTriggerValue("event", { type: eventName, args: eventArgs });
-        })
-      };
-      instance = newInstance;
-      instances.set(parentElement, instance);
-    } else {
-      instance.setTriggerValue = setTriggerValue;
-    }
-    if (instance.unsubscribe) instance.unsubscribe();
-    const { root, store } = instance;
-    const modelKeys = Object.keys(store.initialState());
-    instance.unsubscribe = store.subscribe((state) => {
-      modelKeys.forEach((key) => {
-        if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) {
-          console.log("Sending update:", key, "\n	old:", data[key], "\n	new:", state[key]);
-          setStateValue(key, state[key]);
-        }
-      });
-    });
-    const new_state = {};
-    for (const key of Object.keys(data)) {
-      if (!(key in store.initialState())) continue;
-      let key_data = data[key];
-      if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
-      new_state[key] = key_data;
-    }
-    console.log("Received update:", new_state);
-    store.setState(new_state);
-    root.render(render(store));
-    return () => {
-      const currentInstance = instances.get(parentElement);
-      if (currentInstance) {
-        currentInstance.unsubscribe?.();
-        currentInstance.root.unmount();
-        instances.delete(parentElement);
-      }
-    };
-  };
-  return renderHook;
-}
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -14411,18 +14276,18 @@ const createImpl = (createState) => {
 };
 const create = ((createState) => createState ? createImpl(createState) : createImpl);
 function createNeoscopeStore() {
-  return function(initialState, options) {
+  return function(schema, options) {
     const createStoreInstance = (emitEvent) => {
       const actions = options?.actions ?? (() => ({}));
+      const initialState = buildInitialState(schema);
       const store = create((set) => ({
         ...initialState,
         ...actions(
           set
         )
       }));
-      store.initialState = () => initialState;
-      store.serializers = options?.serializers ?? {};
-      store.deserializers = options?.deserializers ?? {};
+      store.schema = schema;
+      store.initialState = () => buildInitialState(schema);
       store.emitEvent = emitEvent;
       return store;
     };
@@ -14445,6 +14310,291 @@ function createNeoscopeStore() {
   };
 }
 const NeoscopeStoreContext = reactExports.createContext(null);
+function field(defaultValue, opts) {
+  return { __kind: "field", default: defaultValue, ...opts };
+}
+function resolveSchemaNode(schema, path) {
+  let current = { __kind: "submodel", schema };
+  for (const segment of path) {
+    if (current.__kind === "submodel") {
+      const next = current.schema[segment];
+      if (!next) return null;
+      current = next;
+    } else if (current.__kind === "record") {
+      current = { __kind: "submodel", schema: current.itemSchema };
+    } else {
+      return null;
+    }
+  }
+  return current;
+}
+function buildInitialState(schema) {
+  const state = {};
+  for (const [key, node] of Object.entries(schema)) {
+    if (node.__kind === "field") {
+      state[key] = structuredClone(node.default);
+    } else if (node.__kind === "submodel") {
+      state[key] = buildInitialState(node.schema);
+    } else if (node.__kind === "record") {
+      state[key] = structuredClone(node.default);
+    }
+  }
+  return state;
+}
+function deserializeNode(node, rawValue) {
+  if (node.__kind === "field") {
+    return node.deserialize ? node.deserialize(rawValue) : rawValue;
+  }
+  if (node.__kind === "submodel") {
+    const base = buildInitialState(node.schema);
+    if (rawValue && typeof rawValue === "object") {
+      for (const [k, childNode] of Object.entries(node.schema)) {
+        if (k in rawValue) {
+          base[k] = deserializeNode(childNode, rawValue[k]);
+        }
+      }
+    }
+    return base;
+  }
+  if (node.__kind === "record") {
+    const out = {};
+    if (rawValue && typeof rawValue === "object") {
+      const itemNode = { __kind: "submodel", schema: node.itemSchema };
+      for (const [dictKey, dictRaw] of Object.entries(rawValue)) {
+        out[dictKey] = deserializeNode(itemNode, dictRaw);
+      }
+    }
+    return out;
+  }
+  return rawValue;
+}
+function serializeNode(node, value) {
+  if (node.__kind === "field") {
+    return node.serialize ? node.serialize(value) : value;
+  }
+  if (node.__kind === "submodel" && value && typeof value === "object") {
+    const out = {};
+    for (const [k, childNode] of Object.entries(node.schema)) {
+      if (k in value) {
+        out[k] = serializeNode(childNode, value[k]);
+      }
+    }
+    return out;
+  }
+  if (node.__kind === "record" && value && typeof value === "object") {
+    const out = {};
+    const itemNode = { __kind: "submodel", schema: node.itemSchema };
+    for (const [dictKey, dictVal] of Object.entries(value)) {
+      out[dictKey] = serializeNode(itemNode, dictVal);
+    }
+    return out;
+  }
+  return value;
+}
+function applyUpdates(schema, currentState, updates) {
+  let nextState = { ...currentState };
+  let hasChanges = false;
+  for (const [flatKey, rawValue] of Object.entries(updates)) {
+    if (flatKey === "__version__") continue;
+    const parts = flatKey.split(".");
+    const parentParts = parts.slice(0, -1);
+    const targetKey = parts[parts.length - 1];
+    if (isDeletedMarker(rawValue)) {
+      let curr = nextState;
+      let valid = true;
+      for (const p of parentParts) {
+        if (!curr || typeof curr !== "object" || !(p in curr)) {
+          valid = false;
+          break;
+        }
+        curr[p] = { ...curr[p] };
+        curr = curr[p];
+      }
+      if (valid && curr && targetKey in curr) {
+        delete curr[targetKey];
+        hasChanges = true;
+      }
+      continue;
+    }
+    const targetNode = resolveSchemaNode(schema, parts);
+    if (!targetNode) continue;
+    const deserializedValue = deserializeNode(targetNode, rawValue);
+    let currNew = nextState;
+    let currOld = currentState;
+    for (const p of parentParts) {
+      currNew[p] = currNew[p] && typeof currNew[p] === "object" ? { ...currNew[p] } : {};
+      currNew = currNew[p];
+      currOld = currOld?.[p];
+    }
+    if (currOld?.[targetKey] !== deserializedValue) {
+      currNew[targetKey] = deserializedValue;
+      hasChanges = true;
+    }
+  }
+  return { nextState, hasChanges };
+}
+function isDeletedMarker(value) {
+  return value?.__deleted__ === true;
+}
+const DELETED_MARKER = { __deleted__: true };
+function computeStateDiff(schema, prevState, nextState, prefix = "", diff = {}) {
+  for (const [key, node] of Object.entries(schema)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const prevVal = prevState?.[key];
+    const nextVal = nextState?.[key];
+    if (prevVal === nextVal) continue;
+    if (node.__kind === "field") {
+      diff[path] = serializeNode(node, nextVal);
+    } else if (node.__kind === "submodel") {
+      if (!prevVal || !nextVal) {
+        diff[path] = serializeNode(node, nextVal);
+      } else {
+        computeStateDiff(node.schema, prevVal, nextVal, path, diff);
+      }
+    } else if (node.__kind === "record") {
+      if (!prevVal || !nextVal) {
+        diff[path] = serializeNode(node, nextVal);
+      } else {
+        const itemNode = { __kind: "submodel", schema: node.itemSchema };
+        for (const dictKey of Object.keys(prevVal)) {
+          if (!(dictKey in nextVal)) {
+            diff[`${path}.${dictKey}`] = DELETED_MARKER;
+          }
+        }
+        for (const dictKey of Object.keys(nextVal)) {
+          if (!(dictKey in prevVal)) {
+            diff[`${path}.${dictKey}`] = serializeNode(itemNode, nextVal[dictKey]);
+          } else if (prevVal[dictKey] !== nextVal[dictKey]) {
+            computeStateDiff(node.itemSchema, prevVal[dictKey], nextVal[dictKey], `${path}.${dictKey}`, diff);
+          }
+        }
+      }
+    }
+  }
+  return diff;
+}
+function createAnywidgetRenderer(render, createStore2, debounceMs = 50) {
+  const renderHook = ({ model, el }) => {
+    function sendEvent(eventName, args) {
+      model.send({ event: { type: eventName, args } });
+    }
+    const store = createStore2((eventName, eventArgs) => sendEvent(eventName, eventArgs));
+    const root = clientExports.createRoot(el);
+    el.classList.add("neoscope-widget-root");
+    let currentVersion = -1;
+    let lastSyncedState = store.getState();
+    let sendTimeout = null;
+    let pendingPatch = {};
+    function sendPendingPatch() {
+      if (Object.keys(pendingPatch).length === 0) return;
+      currentVersion += 1;
+      model.send({ patch: pendingPatch, __version__: currentVersion });
+      pendingPatch = {};
+    }
+    function updateLocalSnapshot(state) {
+      const fullSnapshot = serializeNode({ __kind: "submodel", schema: store.schema }, state);
+      fullSnapshot.__version__ = currentVersion;
+      model.set("_frontend_data", fullSnapshot);
+    }
+    const initialData = model.get("_frontend_data");
+    if (initialData) {
+      currentVersion = initialData.__version__ ?? 0;
+      const { nextState, hasChanges } = applyUpdates(store.schema, store.getState(), initialData);
+      if (hasChanges) {
+        lastSyncedState = nextState;
+        store.setState(nextState);
+      }
+    }
+    const unsubscribeStore = store.subscribe((state) => {
+      const diff = computeStateDiff(store.schema, lastSyncedState, state);
+      lastSyncedState = state;
+      if (Object.keys(diff).length === 0) return;
+      Object.assign(pendingPatch, diff);
+      updateLocalSnapshot(state);
+      if (!sendTimeout) {
+        sendPendingPatch();
+        sendTimeout = setTimeout(() => {
+          sendPendingPatch();
+          sendTimeout = null;
+        }, debounceMs);
+      }
+    });
+    function onCustomMessage(msg) {
+      if (!msg || typeof msg !== "object" || !msg.patch) return;
+      const incomingVersion = msg.__version__ ?? 0;
+      if (incomingVersion <= currentVersion) return;
+      currentVersion = incomingVersion;
+      const { nextState, hasChanges } = applyUpdates(store.schema, store.getState(), msg.patch);
+      if (hasChanges) {
+        lastSyncedState = nextState;
+        store.setState(nextState);
+        updateLocalSnapshot(nextState);
+      }
+    }
+    model.on("msg:custom", onCustomMessage);
+    root.render(render(store));
+    return () => {
+      if (sendTimeout) {
+        clearTimeout(sendTimeout);
+        sendPendingPatch();
+      }
+      unsubscribeStore();
+      model.off("change:_frontend_data", onCustomMessage);
+      root.unmount();
+    };
+  };
+  return { render: renderHook };
+}
+const instances = /* @__PURE__ */ new WeakMap();
+function createStreamlitRenderer(render, createStore2) {
+  const renderHook = (args) => {
+    const { data, parentElement, setStateValue, setTriggerValue } = args;
+    const rootElement = parentElement.querySelector(".react-root");
+    if (!rootElement) {
+      throw new Error("Unexpected: React root element not found");
+    }
+    let instance = instances.get(parentElement);
+    if (!instance) {
+      const newInstance = {
+        root: clientExports.createRoot(rootElement),
+        setTriggerValue,
+        store: createStore2((eventName, eventArgs) => {
+          newInstance.setTriggerValue("event", { type: eventName, args: eventArgs });
+        })
+      };
+      instance = newInstance;
+      instances.set(parentElement, instance);
+    } else {
+      instance.setTriggerValue = setTriggerValue;
+    }
+    if (instance.unsubscribe) instance.unsubscribe();
+    const { root, store } = instance;
+    const modelKeys = Object.keys(store.initialState());
+    instance.unsubscribe = store.subscribe((state) => {
+      modelKeys.forEach((key) => {
+        if (JSON.stringify(state[key]) !== JSON.stringify(data[key])) setStateValue(key, state[key]);
+      });
+    });
+    const new_state = {};
+    for (const key of Object.keys(data)) {
+      if (!(key in store.initialState())) continue;
+      let key_data = data[key];
+      if (store.deserializers[key]) key_data = store.deserializers[key](key_data);
+      new_state[key] = key_data;
+    }
+    store.setState(new_state);
+    root.render(render(store));
+    return () => {
+      const currentInstance = instances.get(parentElement);
+      if (currentInstance) {
+        currentInstance.unsubscribe?.();
+        currentInstance.root.unmount();
+        instances.delete(parentElement);
+      }
+    };
+  };
+  return renderHook;
+}
 const ResizeHeightHandle = ({ defaultHeight, onHeightChange, minHeight, maxHeight, className }) => {
   const [height, setHeight] = reactExports.useState(defaultHeight);
   const [isHighligted, setIsHighligted] = reactExports.useState(false);
@@ -14684,6 +14834,9 @@ const _Rect = class _Rect {
       h = -h;
     }
     return new _Rect(new Point(y, x), new Point(y + h, x + w));
+  }
+  toTuple() {
+    return [this.height, this.width, this.top, this.left];
   }
   static fromCenter(center, size) {
     const halfSize = size.divide(2).abs();
@@ -15663,6 +15816,227 @@ class ZoomAreaController {
     else this._setTransform(nextTr);
   }
 }
+function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) {
+  reactExports.useEffect(() => {
+    const area = zoomController.areaNode;
+    if (!area) return;
+    const zoomCtrls = new ZoomControls(zoomController, area);
+    const zoomState = zoomController.state;
+    userEvents = {
+      ...{
+        onMouseDown: (ev, ctrls) => {
+          if (ev.button === 0 || ev.button === 1) {
+            ctrls.startPan(ev);
+            onCursorChange?.(null);
+          }
+        },
+        onWheel: (ev, ctrls) => {
+          const delta = -ev.deltaY / 200;
+          const zoomState2 = zoomController.state;
+          if (delta < 0 && zoomState2.isMinZoom()) {
+            const pan = zoomState2.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
+            zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
+          } else {
+            ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
+          }
+        }
+      },
+      ...userEvents
+    };
+    const events = {
+      onMouseDown: (ev, ctrls) => {
+        userEvents?.onMouseDown?.(ev, ctrls);
+        userEvents?.withMouseDownOrClick?.(ev, ctrls);
+      },
+      onMouseMove: (ev, ctrls) => {
+        if (ctrls.panning && ctrls.lastEvent) ctrls.pan(ev.movementView.neg(), false, "view");
+        else {
+          onCursorChange?.(ev.cursor.floor());
+          userEvents?.onMouseMove?.(ev, ctrls);
+        }
+      },
+      onMouseUp: (ev, ctrls) => {
+        if (ctrls.panning && ev.button === ctrls.initialEvent?.button) {
+          ctrls.endPan();
+          onCursorChange?.(ev.cursor.floor());
+        } else userEvents?.onMouseUp?.(ev, ctrls);
+      },
+      onClick: (ev, ctrls) => {
+        if (ctrls.panning && ev.button === ctrls.initialEvent?.button) ctrls.endPan();
+        else userEvents?.onClick?.(ev, ctrls);
+        userEvents?.withMouseDownOrClick?.(ev, ctrls);
+      },
+      onMouseEnter: (ev, ctrls) => {
+        userEvents?.onMouseEnter?.(ev, ctrls);
+        onCursorChange?.(ev.cursor.floor());
+      },
+      onMouseLeave: (ev, ctrls) => {
+        if (ctrls.panning) ctrls.endPan();
+        userEvents?.onMouseLeave?.(ev, ctrls);
+        onCursorChange?.(null);
+      },
+      onWheel: userEvents?.onWheel
+    };
+    const wheelEL = (ev) => {
+      if (events?.onWheel) {
+        ev.preventDefault();
+        events.onWheel(createSceneWheelEvent(ev, zoomState), zoomCtrls);
+      }
+    };
+    const clickTimers = {
+      0: null,
+      1: null,
+      2: null,
+      3: null,
+      4: null
+    };
+    const mouseEL = (ev) => {
+      ev.preventDefault();
+      const sceneMouseEvent = createSceneMouseEvent(ev, zoomState);
+      const viewPos = sceneMouseEvent.cursorView;
+      const clickTimer = clickTimers[ev.button];
+      if (ev.type === "mousemove") {
+        if (clickTimer) {
+          if (viewPos.subtract(clickTimer.startPos).norm() < 5) {
+            clickTimer.lastPos = viewPos;
+            return;
+          }
+          clearTimeout(clickTimer.timeout);
+          clickTimers[ev.button] = null;
+          events?.onMouseDown?.(clickTimer.mouseDownEvent, zoomCtrls);
+          const deltaView = clickTimer.lastPos.subtract(clickTimer.startPos);
+          const delta = deltaView.divide(zoomState.scale);
+          sceneMouseEvent.movementView = sceneMouseEvent.movementView.add(deltaView);
+          sceneMouseEvent.cursorView = sceneMouseEvent.cursorView.add(deltaView);
+          sceneMouseEvent.movement = sceneMouseEvent.movement.add(delta);
+          sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
+        }
+        events?.onMouseMove?.(sceneMouseEvent, zoomCtrls);
+      } else if (ev.type === "mousedown") {
+        if (clickTimer) {
+          clearTimeout(clickTimer.timeout);
+        }
+        clickTimers[ev.button] = {
+          startPos: viewPos,
+          lastPos: viewPos,
+          mouseDownEvent: sceneMouseEvent,
+          timeout: setTimeout(() => {
+            const c = clickTimers[ev.button];
+            if (c) {
+              clickTimers[ev.button] = null;
+              events?.onMouseDown?.(c.mouseDownEvent, zoomCtrls);
+              const deltaView = c.lastPos.subtract(c.startPos);
+              const delta = deltaView.divide(zoomState.scale);
+              sceneMouseEvent.movementView = deltaView;
+              sceneMouseEvent.cursorView = sceneMouseEvent.cursorView.add(deltaView);
+              sceneMouseEvent.movement = delta;
+              sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
+              events?.onMouseMove?.(sceneMouseEvent, zoomCtrls);
+            }
+          }, 750)
+        };
+      } else if (ev.type === "mouseup") {
+        if (clickTimer) {
+          clearTimeout(clickTimer.timeout);
+          clickTimers[ev.button] = null;
+          events?.onClick?.(sceneMouseEvent, zoomCtrls);
+        } else {
+          events?.onMouseUp?.(sceneMouseEvent, zoomCtrls);
+        }
+      } else if (ev.type === "mouseenter") events?.onMouseEnter?.(sceneMouseEvent, zoomCtrls);
+      else if (ev.type === "mouseleave") events?.onMouseLeave?.(sceneMouseEvent, zoomCtrls);
+    };
+    area.addEventListener("mousedown", mouseEL);
+    area.addEventListener("mouseup", mouseEL);
+    area.addEventListener("mousemove", mouseEL);
+    area.addEventListener("mouseenter", mouseEL);
+    area.addEventListener("mouseleave", mouseEL);
+    area.addEventListener("wheel", wheelEL, { passive: false });
+    return () => {
+      area.removeEventListener("mousedown", mouseEL);
+      area.removeEventListener("mouseup", mouseEL);
+      area.removeEventListener("mousemove", mouseEL);
+      area.removeEventListener("mouseenter", mouseEL);
+      area.removeEventListener("mouseleave", mouseEL);
+      area.removeEventListener("wheel", wheelEL);
+      zoomCtrls.endPan();
+    };
+  }, [zoomController, zoomController.areaNode]);
+}
+class ZoomControls {
+  constructor(controller, area, onCursorChange) {
+    this.controller = controller;
+    this.area = area;
+    this.onCursorChange = onCursorChange;
+    this.panning = false;
+    this.initialEvent = void 0;
+    this.lastEvent = void 0;
+  }
+  startPan(ev) {
+    this.area?.requestPointerLock();
+    this.onCursorChange?.(null);
+    this.panning = true;
+    this.lastEvent = ev;
+    this.initialEvent = ev;
+  }
+  endPan() {
+    document.exitPointerLock();
+    this.panning = false;
+    this.lastEvent = void 0;
+    this.initialEvent = void 0;
+  }
+  pan(translate, animate = false, coord = "view") {
+    if (translate.isZero()) return;
+    this.controller.panBy(translate, coord, animate ? { duration: 200, cancelable: false } : void 0);
+  }
+  zoom(factor, center, animate = false) {
+    this.controller.zoomBy(factor, center, "view", animate ? { duration: 200, cancelable: false } : void 0);
+  }
+}
+function createBaseMouseEvent(ev) {
+  return {
+    altKey: ev.altKey,
+    ctrlKey: ev.ctrlKey,
+    shiftKey: ev.shiftKey,
+    metaKey: ev.metaKey,
+    button: ev.button,
+    buttons: ev.buttons
+  };
+}
+function createSceneMouseEvent(ev, zoomAreaState) {
+  const viewCursor = zoomAreaState.client2view(new Point(ev.y, ev.x));
+  const sceneEv = {
+    ...createBaseMouseEvent(ev),
+    cursor: zoomAreaState.view2scene(viewCursor),
+    cursorView: viewCursor,
+    movement: new Point(ev.movementY, ev.movementX).divide(zoomAreaState.scale),
+    movementView: new Point(ev.movementY, ev.movementX)
+  };
+  return sceneEv;
+}
+function createSceneWheelEvent(ev, zoomAreaState) {
+  let { deltaX, deltaY } = ev;
+  switch (ev.deltaMode) {
+    case WheelEvent.DOM_DELTA_PIXEL:
+      break;
+    case WheelEvent.DOM_DELTA_LINE:
+      deltaX *= 16;
+      deltaY *= 16;
+      break;
+    case WheelEvent.DOM_DELTA_PAGE:
+      deltaX *= 800;
+      deltaY *= 800;
+      break;
+  }
+  const viewCursor = zoomAreaState.client2view(ev.y, ev.x);
+  return {
+    ...createBaseMouseEvent(ev),
+    cursor: zoomAreaState.view2scene(viewCursor),
+    viewCursor,
+    deltaX,
+    deltaY
+  };
+}
 function parseImageString(imageString) {
   if (typeof imageString === "object" && "height" in imageString && "width" in imageString && "data" in imageString) {
     return imageString;
@@ -16178,228 +16552,6 @@ function TickLabel(props) {
     /* @__PURE__ */ jsxRuntimeExports.jsx(Tick, { ...tickProps })
   ] });
 }
-function useSceneMouseEventListener(zoomController, userEvents, onCursorChange) {
-  reactExports.useEffect(() => {
-    const area = zoomController.areaNode;
-    if (!area) return;
-    const zoomCtrls = new ZoomControls(zoomController, area);
-    const zoomState = zoomController.state;
-    userEvents = {
-      ...{
-        onMouseDown: (ev, ctrls) => {
-          if (ev.button === 0 || ev.button === 1) {
-            ctrls.startPan(ev);
-            onCursorChange?.(null);
-          }
-        },
-        onWheel: (ev, ctrls) => {
-          const delta = -ev.deltaY / 200;
-          const zoomState2 = zoomController.state;
-          if (delta < 0 && zoomState2.isMinZoom()) {
-            const pan = zoomState2.relativeCenter.subtract(0.5).clip_norm(-delta * 0.5);
-            zoomController.panBy(pan.neg(), "relative", { duration: 200, cancelable: false });
-          } else {
-            ctrls.zoom(delta, ev.viewCursor, Math.abs(delta) >= 1);
-          }
-        }
-      },
-      ...userEvents
-    };
-    const events = {
-      onMouseDown: (ev, ctrls) => {
-        userEvents?.onMouseDown?.(ev, ctrls);
-        userEvents?.withMouseDownOrClick?.(ev, ctrls);
-      },
-      onMouseMove: (ev, ctrls) => {
-        if (ctrls.panning && ctrls.lastEvent) ctrls.pan(ev.movementView.neg(), false, "view");
-        else {
-          onCursorChange?.(ev.cursor.floor());
-          userEvents?.onMouseMove?.(ev, ctrls);
-        }
-      },
-      onMouseUp: (ev, ctrls) => {
-        if (ctrls.panning && ev.button === ctrls.initialEvent?.button) {
-          ctrls.endPan();
-          onCursorChange?.(ev.cursor.floor());
-        } else userEvents?.onMouseUp?.(ev, ctrls);
-      },
-      onClick: (ev, ctrls) => {
-        if (ctrls.panning && ev.button === ctrls.initialEvent?.button) ctrls.endPan();
-        else userEvents?.onClick?.(ev, ctrls);
-        userEvents?.withMouseDownOrClick?.(ev, ctrls);
-      },
-      onMouseEnter: (ev, ctrls) => {
-        userEvents?.onMouseEnter?.(ev, ctrls);
-        onCursorChange?.(ev.cursor.floor());
-      },
-      onMouseLeave: (ev, ctrls) => {
-        if (ctrls.panning) ctrls.endPan();
-        userEvents?.onMouseLeave?.(ev, ctrls);
-        onCursorChange?.(null);
-      },
-      onWheel: userEvents?.onWheel
-    };
-    const wheelEL = (ev) => {
-      if (events?.onWheel) {
-        ev.preventDefault();
-        events.onWheel(createSceneWheelEvent(ev, zoomState), zoomCtrls);
-      }
-    };
-    const clickTimers = {
-      0: null,
-      1: null,
-      2: null,
-      3: null,
-      4: null
-    };
-    const mouseEL = (ev) => {
-      ev.preventDefault();
-      const sceneMouseEvent = createSceneMouseEvent(ev, zoomState);
-      const viewPos = sceneMouseEvent.cursorView;
-      const clickTimer = clickTimers[ev.button];
-      if (ev.type === "mousemove") {
-        if (clickTimer) {
-          if (viewPos.subtract(clickTimer.startPos).norm() < 5) {
-            clickTimer.lastPos = viewPos;
-            return;
-          }
-          clearTimeout(clickTimer.timeout);
-          clickTimers[ev.button] = null;
-          events?.onMouseDown?.(clickTimer.mouseDownEvent, zoomCtrls);
-          const deltaView = clickTimer.lastPos.subtract(clickTimer.startPos);
-          const delta = deltaView.divide(zoomState.scale);
-          sceneMouseEvent.movementView = sceneMouseEvent.movementView.add(deltaView);
-          sceneMouseEvent.cursorView = sceneMouseEvent.cursorView.add(deltaView);
-          sceneMouseEvent.movement = sceneMouseEvent.movement.add(delta);
-          sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
-        }
-        events?.onMouseMove?.(sceneMouseEvent, zoomCtrls);
-      } else if (ev.type === "mousedown") {
-        if (clickTimer) {
-          clearTimeout(clickTimer.timeout);
-        }
-        clickTimers[ev.button] = {
-          startPos: viewPos,
-          lastPos: viewPos,
-          mouseDownEvent: sceneMouseEvent,
-          timeout: setTimeout(() => {
-            const c = clickTimers[ev.button];
-            if (c) {
-              clickTimers[ev.button] = null;
-              events?.onMouseDown?.(c.mouseDownEvent, zoomCtrls);
-              const deltaView = c.lastPos.subtract(c.startPos);
-              const delta = deltaView.divide(zoomState.scale);
-              sceneMouseEvent.movementView = deltaView;
-              sceneMouseEvent.cursorView = sceneMouseEvent.cursorView.add(deltaView);
-              sceneMouseEvent.movement = delta;
-              sceneMouseEvent.cursor = sceneMouseEvent.cursor.add(delta);
-              events?.onMouseMove?.(sceneMouseEvent, zoomCtrls);
-            }
-          }, 750)
-        };
-      } else if (ev.type === "mouseup") {
-        if (clickTimer) {
-          clearTimeout(clickTimer.timeout);
-          clickTimers[ev.button] = null;
-          events?.onClick?.(sceneMouseEvent, zoomCtrls);
-        } else {
-          events?.onMouseUp?.(sceneMouseEvent, zoomCtrls);
-        }
-      } else if (ev.type === "mouseenter") events?.onMouseEnter?.(sceneMouseEvent, zoomCtrls);
-      else if (ev.type === "mouseleave") events?.onMouseLeave?.(sceneMouseEvent, zoomCtrls);
-    };
-    area.addEventListener("mousedown", mouseEL);
-    area.addEventListener("mouseup", mouseEL);
-    area.addEventListener("mousemove", mouseEL);
-    area.addEventListener("mouseenter", mouseEL);
-    area.addEventListener("mouseleave", mouseEL);
-    area.addEventListener("wheel", wheelEL, { passive: false });
-    return () => {
-      area.removeEventListener("mousedown", mouseEL);
-      area.removeEventListener("mouseup", mouseEL);
-      area.removeEventListener("mousemove", mouseEL);
-      area.removeEventListener("mouseenter", mouseEL);
-      area.removeEventListener("mouseleave", mouseEL);
-      area.removeEventListener("wheel", wheelEL);
-      zoomCtrls.endPan();
-    };
-  }, [zoomController, zoomController.areaNode]);
-  console.log(zoomController, zoomController.areaNode, userEvents, onCursorChange);
-}
-class ZoomControls {
-  constructor(controller, area, onCursorChange) {
-    this.controller = controller;
-    this.area = area;
-    this.onCursorChange = onCursorChange;
-    this.panning = false;
-    this.initialEvent = void 0;
-    this.lastEvent = void 0;
-  }
-  startPan(ev) {
-    this.area?.requestPointerLock();
-    this.onCursorChange?.(null);
-    this.panning = true;
-    this.lastEvent = ev;
-    this.initialEvent = ev;
-  }
-  endPan() {
-    document.exitPointerLock();
-    this.panning = false;
-    this.lastEvent = void 0;
-    this.initialEvent = void 0;
-  }
-  pan(translate, animate = false, coord = "view") {
-    if (translate.isZero()) return;
-    this.controller.panBy(translate, coord, animate ? { duration: 200, cancelable: false } : void 0);
-  }
-  zoom(factor, center, animate = false) {
-    this.controller.zoomBy(factor, center, "view", animate ? { duration: 200, cancelable: false } : void 0);
-  }
-}
-function createBaseMouseEvent(ev) {
-  return {
-    altKey: ev.altKey,
-    ctrlKey: ev.ctrlKey,
-    shiftKey: ev.shiftKey,
-    metaKey: ev.metaKey,
-    button: ev.button,
-    buttons: ev.buttons
-  };
-}
-function createSceneMouseEvent(ev, zoomAreaState) {
-  const viewCursor = zoomAreaState.client2view(new Point(ev.y, ev.x));
-  const sceneEv = {
-    ...createBaseMouseEvent(ev),
-    cursor: zoomAreaState.view2scene(viewCursor),
-    cursorView: viewCursor,
-    movement: new Point(ev.movementY, ev.movementX).divide(zoomAreaState.scale),
-    movementView: new Point(ev.movementY, ev.movementX)
-  };
-  return sceneEv;
-}
-function createSceneWheelEvent(ev, zoomAreaState) {
-  let { deltaX, deltaY } = ev;
-  switch (ev.deltaMode) {
-    case WheelEvent.DOM_DELTA_PIXEL:
-      break;
-    case WheelEvent.DOM_DELTA_LINE:
-      deltaX *= 16;
-      deltaY *= 16;
-      break;
-    case WheelEvent.DOM_DELTA_PAGE:
-      deltaX *= 800;
-      deltaY *= 800;
-      break;
-  }
-  const viewCursor = zoomAreaState.client2view(ev.y, ev.x);
-  return {
-    ...createBaseMouseEvent(ev),
-    cursor: zoomAreaState.view2scene(viewCursor),
-    viewCursor,
-    deltaX,
-    deltaY
-  };
-}
 function CursorOverlay(props) {
   let relCursorPos = typeof props.cursorPos === "function" ? props.cursorPos() : props.cursorPos;
   const cursorPos = relCursorPos != null ? props.transform.scene2view(asPoint(relCursorPos)) : null;
@@ -16437,16 +16589,9 @@ function createInstanciatedStore(storeName, initializer) {
   return useInstanciatedStore;
 }
 const Model = {
-  image: { width: 0, height: 0, data: "" }
+  image: field({ width: 0, height: 0, data: "" }, { deserialize: (bytes) => parseImageString(bytes) })
 };
-const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore()(Model, {
-  deserializers: {
-    image: (bytes) => {
-      console.log("deserializing image");
-      return parseImageString(bytes);
-    }
-  }
-});
+const [createImageViewerStore, useImageViewerStore] = createNeoscopeStore()(Model);
 const useCursorStore = createInstanciatedStore("ImageViewer.cursor", (set) => ({
   cursorPos: null,
   setCursorPos: (pos) => set({ cursorPos: pos })
@@ -16455,8 +16600,13 @@ const ImageViewer = () => {
   const { image, onClick } = useImageViewerStore();
   const { height, width, data } = image;
   const domain = new Rect(new Point(height, width));
+  const cursorInstance = 0;
   const [zoomState, zoomController, ref] = useZoomTransform(domain, 50);
-  useSceneMouseEventListener(zoomController, void 0, useCursorStore.getState(0).setCursorPos);
+  useSceneMouseEventListener(
+    zoomController,
+    { onClick: (ev) => onClick(ev.cursor.y, ev.cursor.x) },
+    useCursorStore.getState(cursorInstance).setCursorPos
+  );
   const t = zoomState;
   const sceneSize = t.sceneDomain.size.multiply(zoomState.scale);
   const viewTopLeft = t.zoomArea.viewSize.half().subtract(t.center.subtract(t.sceneDomain.topLeft).multiply(t.scale));
@@ -16467,76 +16617,89 @@ const ImageViewer = () => {
     left: `${viewTopLeft.x}px`,
     top: `${viewTopLeft.y}px`
   };
+  const pixelSize = zoomState.scale * domain.width / zoomState.sceneDomain.width;
   const rulerProps = {
     thickness: 15,
-    scale: () => zoomState.scale
+    zoomController,
+    cursorInstance
   };
-  const widgetStyle = {
-    display: "grid",
-    gridTemplateColumns: `${rulerProps.thickness}px 1fr`,
-    gridTemplateRows: `${rulerProps.thickness}px 1fr`
-  };
-  const topRuler = /* @__PURE__ */ jsxRuntimeExports.jsx(
-    RulerAxis,
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
     {
-      orientation: "horizontal",
-      center: () => t.center.x,
-      cursorPos: () => useCursorStore(0, (state) => state.cursorPos?.x || null),
-      onPanCenter: (delta) => zoomController.panHorizontallyBy(delta),
-      onSetCenter: (x) => zoomController.setCenterX(x),
-      axisInterval: { start: zoomState.sceneDomain.left, end: zoomState.sceneDomain.right },
-      style: { gridRow: 1, gridColumn: 2 },
-      ...rulerProps
+      className: "ImageViewerWidget",
+      style: {
+        display: "grid",
+        gridTemplateColumns: `${rulerProps.thickness}px 1fr`,
+        gridTemplateRows: `${rulerProps.thickness}px 1fr`
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(VerticalRuler, { style: { gridRow: 2, gridColumn: 1 }, ...rulerProps }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(HorizontalRuler, { style: { gridRow: 1, gridColumn: 2 }, ...rulerProps }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            ref,
+            className: "ImageViewportContainer",
+            style: { gridRow: 2, gridColumn: 2, cursor: "crosshair" },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ImageViewport", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: sceneTransform, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "img",
+                {
+                  src: data,
+                  style: { width: "100%", height: "100%", imageRendering: pixelSize < 7 ? "auto" : "pixelated" }
+                }
+              ) }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                CursorOverlay,
+                {
+                  sceneDomain: zoomState.sceneDomain,
+                  cursorPos: () => useCursorStore(cursorInstance, (state) => state.cursorPos || null),
+                  transform: zoomState
+                }
+              )
+            ]
+          }
+        )
+      ]
     }
   );
-  const leftRuler = /* @__PURE__ */ jsxRuntimeExports.jsx(
-    RulerAxis,
-    {
-      orientation: "vertical",
-      center: () => t.center.y,
-      cursorPos: () => useCursorStore(0, (state) => state.cursorPos?.y || null),
-      onPanCenter: (delta) => zoomController.panVerticallyBy(delta),
-      onSetCenter: (y) => zoomController.setCenterY(y),
-      axisInterval: { start: zoomState.sceneDomain.top, end: zoomState.sceneDomain.bottom },
-      style: { gridRow: 2, gridColumn: 1 },
-      ...rulerProps
-    }
-  );
-  const pixelSize = zoomState.scale * domain.width / zoomState.sceneDomain.width;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ImageViewerWidget", style: widgetStyle, children: [
-    topRuler,
-    leftRuler,
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "div",
-      {
-        ref,
-        className: "ImageViewportContainer",
-        style: { gridRow: 2, gridColumn: 2, cursor: "crosshair" },
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ImageViewport", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: sceneTransform, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "img",
-            {
-              src: data,
-              style: { width: "100%", height: "100%", imageRendering: pixelSize < 7 ? "auto" : "pixelated" }
-            }
-          ) }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            CursorOverlay,
-            {
-              sceneDomain: zoomState.sceneDomain,
-              cursorPos: () => useCursorStore(0, (state) => state.cursorPos || null),
-              transform: zoomState
-            }
-          )
-        ]
-      }
-    )
-  ] });
 };
-const ImageViewer_default = createNeoscopeRenderer(() => /* @__PURE__ */ jsxRuntimeExports.jsx(ImageViewer, {}), createImageViewerStore, {
+const ImageViewer_widget = createNeoscopeRenderer(() => /* @__PURE__ */ jsxRuntimeExports.jsx(ImageViewer, {}), createImageViewerStore, {
   maximizableHeight: true,
   resizeableHeight: 400
 });
+function HorizontalRuler({ thickness, zoomController, cursorInstance, style }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    RulerAxis,
+    {
+      orientation: "horizontal",
+      center: () => zoomController.state.center.x,
+      cursorPos: () => useCursorStore(cursorInstance, (state) => state.cursorPos?.x || null),
+      onPanCenter: (delta) => zoomController.panHorizontallyBy(delta),
+      onSetCenter: (x) => zoomController.setCenterX(x),
+      axisInterval: { start: zoomController.state.sceneDomain.left, end: zoomController.state.sceneDomain.right },
+      style,
+      thickness,
+      scale: () => zoomController.state.scale
+    }
+  );
+}
+function VerticalRuler({ thickness, zoomController, cursorInstance, style }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    RulerAxis,
+    {
+      orientation: "vertical",
+      center: () => zoomController.state.center.y,
+      cursorPos: () => useCursorStore(cursorInstance, (state) => state.cursorPos?.y || null),
+      onPanCenter: (delta) => zoomController.panVerticallyBy(delta),
+      onSetCenter: (y) => zoomController.setCenterY(y),
+      axisInterval: { start: zoomController.state.sceneDomain.top, end: zoomController.state.sceneDomain.bottom },
+      style,
+      thickness,
+      scale: () => zoomController.state.scale
+    }
+  );
+}
 export {
-  ImageViewer_default as default
+  ImageViewer_widget as default
 };

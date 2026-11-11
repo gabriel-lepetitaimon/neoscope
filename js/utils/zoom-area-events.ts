@@ -183,7 +183,6 @@ export function useSceneMouseEventListener(
       zoomCtrls.endPan();
     };
   }, [zoomController, zoomController.areaNode]);
-  console.log(zoomController, zoomController.areaNode, userEvents, onCursorChange);
 }
 
 // =========================================================================
